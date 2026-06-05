@@ -5,21 +5,11 @@ type DataBinding struct {
 	Path string `json:"path"`
 }
 
-// CallableFrom describes where a function call may be invoked.
-type CallableFrom string
-
-const (
-	CallableFromClientOnly     CallableFrom = "clientOnly"
-	CallableFromRemoteOnly     CallableFrom = "remoteOnly"
-	CallableFromClientOrRemote CallableFrom = "clientOrRemote"
-)
-
 // FunctionCall invokes a named client-side function.
 type FunctionCall struct {
-	CallableFrom CallableFrom   `json:"callableFrom,omitempty"`
-	Call         string         `json:"call"`
-	Args         map[string]any `json:"args,omitempty"`
-	ReturnType   ReturnType     `json:"returnType,omitempty"`
+	Call       string         `json:"call"`
+	Args       map[string]any `json:"args,omitempty"`
+	ReturnType ReturnType     `json:"returnType,omitempty"`
 }
 
 // ChildList is either a static list of component IDs or a dynamic template.

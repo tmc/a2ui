@@ -30,7 +30,7 @@ func TestPureText(t *testing.T) {
 }
 
 func TestV010CallFunctionPayload(t *testing.T) {
-	input := `<a2ui-json>{"version":"v0.10","functionCallId":"call-1","wantResponse":true,"callFunction":{"callableFrom":"remoteOnly","call":"lookup","returnType":"string"}}</a2ui-json>`
+	input := `<a2ui-json>{"version":"v0.10","functionCallId":"call-1","wantResponse":true,"callFunction":{"call":"lookup","returnType":"string"}}</a2ui-json>`
 
 	p := NewParser()
 	parts, err := p.ProcessChunk(input)
@@ -66,7 +66,7 @@ func TestV010CallFunctionPayload(t *testing.T) {
 }
 
 func TestBareV010CallFunctionPayload(t *testing.T) {
-	input := `before {"version":"v0.10","functionCallId":"call-1","callFunction":{"callableFrom":"remoteOnly","call":"lookup","returnType":"string"}} after`
+	input := `before {"version":"v0.10","functionCallId":"call-1","callFunction":{"call":"lookup","returnType":"string"}} after`
 
 	p := NewParser()
 	parts, err := p.ProcessChunk(input)

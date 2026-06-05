@@ -110,9 +110,8 @@ func TestServerMessageRoundTrip(t *testing.T) {
 				FunctionCallID: "call-1",
 				WantResponse:   true,
 				CallFunction: &FunctionCall{
-					CallableFrom: CallableFromRemoteOnly,
-					Call:         "lookup",
-					ReturnType:   ReturnTypeString,
+					Call:       "lookup",
+					ReturnType: ReturnTypeString,
 				},
 			},
 		},
@@ -161,7 +160,7 @@ func TestServerMessageRoundTrip(t *testing.T) {
 }
 
 func TestServerMessageCallFunctionWantResponseRoundTrip(t *testing.T) {
-	data := []byte(`{"version":"v0.10","functionCallId":"call-1","wantResponse":true,"callFunction":{"callableFrom":"remoteOnly","call":"lookup","returnType":"string"}}`)
+	data := []byte(`{"version":"v0.10","functionCallId":"call-1","wantResponse":true,"callFunction":{"call":"lookup","returnType":"string"}}`)
 	var msg ServerMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
 		t.Fatal(err)
@@ -342,9 +341,8 @@ func TestServerMessageRequiresPayloadIDs(t *testing.T) {
 			msg: ServerMessage{
 				Version: Version,
 				CallFunction: &FunctionCall{
-					CallableFrom: CallableFromRemoteOnly,
-					Call:         "lookup",
-					ReturnType:   ReturnTypeString,
+					Call:       "lookup",
+					ReturnType: ReturnTypeString,
 				},
 			},
 		},
@@ -354,18 +352,6 @@ func TestServerMessageRequiresPayloadIDs(t *testing.T) {
 				Version:        Version,
 				FunctionCallID: "call-1",
 				CallFunction: &FunctionCall{
-					CallableFrom: CallableFromRemoteOnly,
-					ReturnType:   ReturnTypeString,
-				},
-			},
-		},
-		{
-			name: "call_function_missing_callable_from",
-			msg: ServerMessage{
-				Version:        Version,
-				FunctionCallID: "call-1",
-				CallFunction: &FunctionCall{
-					Call:       "lookup",
 					ReturnType: ReturnTypeString,
 				},
 			},
@@ -376,8 +362,7 @@ func TestServerMessageRequiresPayloadIDs(t *testing.T) {
 				Version:        Version,
 				FunctionCallID: "call-1",
 				CallFunction: &FunctionCall{
-					CallableFrom: CallableFromRemoteOnly,
-					Call:         "lookup",
+					Call: "lookup",
 				},
 			},
 		},
@@ -397,10 +382,9 @@ func TestServerMessageRequiresPayloadIDs(t *testing.T) {
 		})
 	}
 	for _, raw := range []string{
-		`{"version":"v0.10","callFunction":{"callableFrom":"remoteOnly","call":"lookup","returnType":"string"}}`,
-		`{"version":"v0.10","functionCallId":"call-1","callFunction":{"callableFrom":"remoteOnly","returnType":"string"}}`,
-		`{"version":"v0.10","functionCallId":"call-1","callFunction":{"call":"lookup","returnType":"string"}}`,
-		`{"version":"v0.10","functionCallId":"call-1","callFunction":{"callableFrom":"remoteOnly","call":"lookup"}}`,
+		`{"version":"v0.10","callFunction":{"call":"lookup","returnType":"string"}}`,
+		`{"version":"v0.10","functionCallId":"call-1","callFunction":{"returnType":"string"}}`,
+		`{"version":"v0.10","functionCallId":"call-1","callFunction":{"call":"lookup"}}`,
 		`{"version":"v0.10","actionResponse":{"value":"done"}}`,
 	} {
 		var msg ServerMessage

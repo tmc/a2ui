@@ -33,7 +33,7 @@ func ExampleReader_Next() {
 }
 
 func ExampleReader_Next_payload() {
-	input := `Before <a2ui-json>{"version":"v0.10","functionCallId":"call-1","callFunction":{"callableFrom":"remoteOnly","call":"lookup","returnType":"string"}}</a2ui-json>`
+	input := `Before <a2ui-json>{"version":"v0.10","functionCallId":"call-1","callFunction":{"call":"lookup","returnType":"string"}}</a2ui-json>`
 	r := a2uistream.NewReader(strings.NewReader(input))
 	for {
 		part, err := r.Next()

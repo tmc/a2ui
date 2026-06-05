@@ -491,11 +491,6 @@ func (v *Validator) validateFunctionCallV010(call a2uiv010.FunctionCall, depth i
 		if call.ReturnType == "" {
 			return fmt.Errorf("returnType is required")
 		}
-		switch call.CallableFrom {
-		case a2uiv010.CallableFromRemoteOnly, a2uiv010.CallableFromClientOrRemote:
-		default:
-			return fmt.Errorf("callableFrom must be remoteOnly or clientOrRemote")
-		}
 	}
 	for key, arg := range call.Args {
 		if err := v.validateFunctionArgV010(arg, depth+1); err != nil {

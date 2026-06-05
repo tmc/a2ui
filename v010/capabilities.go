@@ -2,6 +2,16 @@ package v010
 
 import "encoding/json"
 
+// CallableFrom describes where a catalog function may be invoked.
+// Clients determine the execution boundary at runtime from the active catalog.
+type CallableFrom string
+
+const (
+	CallableFromClientOnly     CallableFrom = "clientOnly"
+	CallableFromRemoteOnly     CallableFrom = "remoteOnly"
+	CallableFromClientOrRemote CallableFrom = "clientOrRemote"
+)
+
 // ClientCapabilities describes a client's UI rendering capabilities,
 // sent as part of A2A metadata.
 type ClientCapabilities struct {
@@ -37,10 +47,11 @@ type CatalogDef struct {
 
 // FunctionDefinition describes a function's interface for catalog definitions.
 type FunctionDefinition struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Parameters  json.RawMessage `json:"parameters"`
-	ReturnType  ReturnType      `json:"returnType"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	CallableFrom CallableFrom    `json:"callableFrom,omitempty"`
+	Parameters   json.RawMessage `json:"parameters"`
+	ReturnType   ReturnType      `json:"returnType"`
 }
 
 // ClientDataModel carries the client data model in A2A message metadata.

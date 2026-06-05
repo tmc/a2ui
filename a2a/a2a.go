@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -200,7 +201,7 @@ func NewExtension(opts AgentExtensionOptions) Extension {
 func SelectNewestRequestedExtension(requested, advertised []string) (string, bool) {
 	best := ""
 	for _, candidate := range requested {
-		if !slicesContains(advertised, candidate) {
+		if !slices.Contains(advertised, candidate) {
 			continue
 		}
 		if best == "" || compareExtensionVersion(candidate, best) > 0 {
@@ -267,13 +268,4 @@ func parseVersionParts(version string) []int {
 		out = append(out, n)
 	}
 	return out
-}
-
-func slicesContains(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }

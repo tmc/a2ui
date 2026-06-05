@@ -45,9 +45,6 @@ func (m ServerMessage) validate() error {
 		if m.CallFunction.Call == "" {
 			return fmt.Errorf("a2ui: call function call is required")
 		}
-		if m.CallFunction.CallableFrom == "" {
-			return fmt.Errorf("a2ui: call function callableFrom is required")
-		}
 		if m.CallFunction.ReturnType == "" {
 			return fmt.Errorf("a2ui: call function returnType is required")
 		}

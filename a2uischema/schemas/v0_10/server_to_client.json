@@ -5,12 +5,24 @@
   "description": "Describes a JSON payload for an A2UI (Agent to UI) message, which is used to dynamically construct and update user interfaces.",
   "type": "object",
   "oneOf": [
-    {"$ref": "#/$defs/CreateSurfaceMessage"},
-    {"$ref": "#/$defs/UpdateComponentsMessage"},
-    {"$ref": "#/$defs/UpdateDataModelMessage"},
-    {"$ref": "#/$defs/DeleteSurfaceMessage"},
-    {"$ref": "#/$defs/CallFunctionMessage"},
-    {"$ref": "#/$defs/ActionResponseMessage"}
+    {
+      "$ref": "#/$defs/CreateSurfaceMessage"
+    },
+    {
+      "$ref": "#/$defs/UpdateComponentsMessage"
+    },
+    {
+      "$ref": "#/$defs/UpdateDataModelMessage"
+    },
+    {
+      "$ref": "#/$defs/DeleteSurfaceMessage"
+    },
+    {
+      "$ref": "#/$defs/CallFunctionMessage"
+    },
+    {
+      "$ref": "#/$defs/ActionResponseMessage"
+    }
   ],
   "$defs": {
     "CreateSurfaceMessage": {
@@ -40,11 +52,17 @@
               "description": "If true, the client will send the full data model of this surface in the metadata of every A2A message sent to the server that created the surface. Defaults to false."
             }
           },
-          "required": ["surfaceId", "catalogId"],
+          "required": [
+            "surfaceId",
+            "catalogId"
+          ],
           "additionalProperties": false
         }
       },
-      "required": ["createSurface", "version"],
+      "required": [
+        "createSurface",
+        "version"
+      ],
       "additionalProperties": false
     },
     "UpdateComponentsMessage": {
@@ -70,11 +88,17 @@
               }
             }
           },
-          "required": ["surfaceId", "components"],
+          "required": [
+            "surfaceId",
+            "components"
+          ],
           "additionalProperties": false
         }
       },
-      "required": ["updateComponents", "version"],
+      "required": [
+        "updateComponents",
+        "version"
+      ],
       "additionalProperties": false
     },
     "UpdateDataModelMessage": {
@@ -100,11 +124,16 @@
               "additionalProperties": true
             }
           },
-          "required": ["surfaceId"],
+          "required": [
+            "surfaceId"
+          ],
           "additionalProperties": false
         }
       },
-      "required": ["updateDataModel", "version"],
+      "required": [
+        "updateDataModel",
+        "version"
+      ],
       "additionalProperties": false
     },
     "DeleteSurfaceMessage": {
@@ -122,11 +151,16 @@
               "description": "The unique identifier for the UI surface to be deleted."
             }
           },
-          "required": ["surfaceId"],
+          "required": [
+            "surfaceId"
+          ],
           "additionalProperties": false
         }
       },
-      "required": ["deleteSurface", "version"],
+      "required": [
+        "deleteSurface",
+        "version"
+      ],
       "additionalProperties": false
     },
     "CallFunctionMessage": {
@@ -145,24 +179,14 @@
           "default": false
         },
         "callFunction": {
-          "allOf": [
-            {
-              "$ref": "common_types.json#/$defs/FunctionCall"
-            },
-            {
-              "properties": {
-                "callableFrom": {
-                  "description": "Specifies where this function can be invoked from.",
-                  "enum": ["remoteOnly", "clientOrRemote"]
-                }
-              }
-            }
-          ],
-          "required": ["call", "returnType", "callableFrom"],
-          "unevaluatedProperties": false
+          "$ref": "common_types.json#/$defs/FunctionCall"
         }
       },
-      "required": ["version", "callFunction", "functionCallId"],
+      "required": [
+        "version",
+        "callFunction",
+        "functionCallId"
+      ],
       "additionalProperties": false
     },
     "ActionResponseMessage": {
@@ -181,23 +205,52 @@
           "properties": {
             "value": {
               "description": "The return value of the action.",
-              "type": ["string", "number", "boolean", "array", "object", "null"]
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "array",
+                "object",
+                "null"
+              ]
             },
             "error": {
               "type": "object",
               "properties": {
-                "code": {"type": "string"},
-                "message": {"type": "string"}
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
               },
-              "required": ["code", "message"],
+              "required": [
+                "code",
+                "message"
+              ],
               "additionalProperties": false
             }
           },
-          "oneOf": [{"required": ["value"]}, {"required": ["error"]}],
+          "oneOf": [
+            {
+              "required": [
+                "value"
+              ]
+            },
+            {
+              "required": [
+                "error"
+              ]
+            }
+          ],
           "additionalProperties": false
         }
       },
-      "required": ["version", "actionResponse", "actionId"],
+      "required": [
+        "version",
+        "actionResponse",
+        "actionId"
+      ],
       "additionalProperties": false
     }
   }
