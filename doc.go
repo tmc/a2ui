@@ -2,8 +2,10 @@
 // protocol, a declarative JSON format for AI agents to generate
 // rich, interactive user interfaces.
 //
-// Deprecated: This package forwards to the v0.9 API in
-// [github.com/tmc/a2ui/v09]. In the next release it becomes
-// the A2UI v1.0 API. Run "go fix ./..." to rewrite uses of this package to
-// the v09 package.
+// This package implements protocol version 1.x. An [AgentMessage] travels
+// from the agent to the renderer; a [RendererMessage] travels from the
+// renderer to the agent.
+//
+// The pre-1.0 protocols are in [github.com/tmc/a2ui/v09]
+// and [github.com/tmc/a2ui/v091].
 package a2ui
