@@ -10,13 +10,6 @@ import (
 // MarshalJSON encodes a [Component] as a flat JSON object with the "component"
 // discriminator, common fields, and component-specific fields merged together.
 func (c Component) MarshalJSON() ([]byte, error) {
-	type common struct {
-		ComponentType string                   `json:"component"`
-		ID            string                   `json:"id"`
-		Accessibility *AccessibilityAttributes `json:"accessibility,omitempty"`
-		Weight        *float64                 `json:"weight,omitempty"`
-		Checks        []CheckRule              `json:"checks,omitempty"`
-	}
 	componentType, specific, count := c.componentData()
 	switch count {
 	case 0:
@@ -25,13 +18,10 @@ func (c Component) MarshalJSON() ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("a2ui: component has multiple concrete types set")
 	}
-	cm := common{
-		ComponentType: componentType,
-		ID:            c.ID,
-		Accessibility: c.Accessibility,
-		Weight:        c.Weight,
-		Checks:        c.Checks,
-	}
+	cm := struct {
+		ComponentType string `json:"component"`
+		componentCommon
+	}{componentType, c.common()}
 
 	commonBytes, err := json.Marshal(cm)
 	if err != nil {
@@ -67,21 +57,12 @@ func (c *Component) UnmarshalJSON(data []byte) error {
 	}
 
 	// Unmarshal common fields.
-	type commonOnly struct {
-		ID            string                   `json:"id"`
-		Accessibility *AccessibilityAttributes `json:"accessibility,omitempty"`
-		Weight        *float64                 `json:"weight,omitempty"`
-		Checks        []CheckRule              `json:"checks,omitempty"`
-	}
-	var cm commonOnly
+	var cm componentCommon
 	if err := json.Unmarshal(data, &cm); err != nil {
 		return err
 	}
 	*c = Component{}
-	c.ID = cm.ID
-	c.Accessibility = cm.Accessibility
-	c.Weight = cm.Weight
-	c.Checks = cm.Checks
+	c.setCommon(cm)
 
 	// Unmarshal component-specific fields.
 	switch disc.ComponentType {

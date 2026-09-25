@@ -355,8 +355,6 @@ func embeddedCatalogRules(c *Catalog) (string, bool) {
 		return basicCatalogRulesV09, true
 	case c.Version == Version091 && id == "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json":
 		return basicCatalogRulesV091, true
-	case c.Version == Version010 && id == "https://a2ui.org/specification/v0_10/catalogs/basic/catalog.json":
-		return basicCatalogRulesV010, true
 	}
 	return "", false
 }

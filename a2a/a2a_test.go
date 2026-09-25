@@ -26,7 +26,7 @@ func TestCreatePartUsesVersionedMIMEType(t *testing.T) {
 	}{
 		{"v0.9", "v0.9", A2UIMIMETypeV09},
 		{"v0.9.1", "v0.9.1", A2UIMIMETypeV091},
-		{"v0.10", "v0.10", A2UIMIMETypeV010},
+		{"v1.0", "v1.0", A2UIMIMETypeV1},
 		{"default", "", A2UIMIMETypeLatest},
 	}
 	for _, tt := range tests {
@@ -46,23 +46,23 @@ func TestCreatePartUsesVersionedMIMEType(t *testing.T) {
 }
 
 func TestCreateDataPartInfersVersionedPayload(t *testing.T) {
-	part, err := CreateDataPart(versionedPayload{Version: "v0.10", Kind: "demo"})
+	part, err := CreateDataPart(versionedPayload{Version: "v1.0", Kind: "demo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := part.Metadata[MIMETypeKey]; got != A2UIMIMETypeV010 {
-		t.Fatalf("mime type = %q, want %q", got, A2UIMIMETypeV010)
+	if got := part.Metadata[MIMETypeKey]; got != A2UIMIMETypeV1 {
+		t.Fatalf("mime type = %q, want %q", got, A2UIMIMETypeV1)
 	}
 }
 
 func TestMarshalA2UIDataClonesMapPayload(t *testing.T) {
-	payload := map[string]any{"version": "v0.10"}
+	payload := map[string]any{"version": "v1.0"}
 	data, err := MarshalA2UIData(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 	data["version"] = "changed"
-	if got := payload["version"]; got != "v0.10" {
+	if got := payload["version"]; got != "v1.0" {
 		t.Fatalf("payload version = %q, want unchanged", got)
 	}
 }

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tmc/a2ui"
+	"github.com/tmc/a2ui/v09"
 )
 
 func TestPureText(t *testing.T) {
@@ -29,8 +29,8 @@ func TestPureText(t *testing.T) {
 	}
 }
 
-func TestV010CallFunctionPayload(t *testing.T) {
-	input := `<a2ui-json>{"version":"v0.10","functionCallId":"call-1","wantResponse":true,"callFunction":{"call":"lookup","returnType":"string"}}</a2ui-json>`
+func TestV1CallRendererFunctionPayload(t *testing.T) {
+	input := `<a2ui-json>{"version":"v1.0","callRendererFunction":{"functionCallId":"call-1","callFunction":{"call":"lookup","catalogId":"https://example.com/catalog.json"}}}</a2ui-json>`
 
 	p := NewParser()
 	parts, err := p.ProcessChunk(input)
@@ -50,23 +50,24 @@ func TestV010CallFunctionPayload(t *testing.T) {
 	if len(payload) != 1 {
 		t.Fatalf("payload count = %d, want 1", len(payload))
 	}
-	if got := payload[0]["functionCallId"]; got != "call-1" {
+	msg, ok := payload[0]["callRendererFunction"].(map[string]any)
+	if !ok {
+		t.Fatalf("callRendererFunction = %#v, want object", payload[0]["callRendererFunction"])
+	}
+	if got := msg["functionCallId"]; got != "call-1" {
 		t.Fatalf("functionCallId = %#v, want call-1", got)
 	}
-	if got := payload[0]["wantResponse"]; got != true {
-		t.Fatalf("wantResponse = %#v, want true", got)
-	}
-	call, ok := payload[0]["callFunction"].(map[string]any)
+	call, ok := msg["callFunction"].(map[string]any)
 	if !ok {
-		t.Fatalf("callFunction = %#v, want object", payload[0]["callFunction"])
+		t.Fatalf("callFunction = %#v, want object", msg["callFunction"])
 	}
 	if got := call["call"]; got != "lookup" {
 		t.Fatalf("callFunction.call = %#v, want lookup", got)
 	}
 }
 
-func TestBareV010CallFunctionPayload(t *testing.T) {
-	input := `before {"version":"v0.10","functionCallId":"call-1","callFunction":{"call":"lookup","returnType":"string"}} after`
+func TestBareV1CallRendererFunctionPayload(t *testing.T) {
+	input := `before {"version":"v1.0","callRendererFunction":{"functionCallId":"call-1","callFunction":{"call":"lookup","catalogId":"https://example.com/catalog.json"}}} after`
 
 	p := NewParser()
 	parts, err := p.ProcessChunk(input)
@@ -86,14 +87,14 @@ func TestBareV010CallFunctionPayload(t *testing.T) {
 	if len(payload) != 1 {
 		t.Fatalf("payload count = %d, want 1", len(payload))
 	}
-	if got := payload[0]["functionCallId"]; got != "call-1" {
-		t.Fatalf("functionCallId = %#v, want call-1", got)
+	if _, ok := payload[0]["callRendererFunction"]; !ok {
+		t.Fatalf("payload = %#v, want callRendererFunction", payload[0])
 	}
 }
 
 func TestVersionOnlyJSONRemainsText(t *testing.T) {
 	p := NewParser()
-	parts, err := p.ProcessChunk(`prefix {"version":"v0.10"} suffix`)
+	parts, err := p.ProcessChunk(`prefix {"version":"v1.0"} suffix`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +104,7 @@ func TestVersionOnlyJSONRemainsText(t *testing.T) {
 	}
 	parts = append(parts, flush...)
 
-	if text := collectText(parts); text != `prefix {"version":"v0.10"} suffix` {
+	if text := collectText(parts); text != `prefix {"version":"v1.0"} suffix` {
 		t.Fatalf("text = %q", text)
 	}
 	if payload := collectPayload(parts); len(payload) != 0 {
@@ -112,9 +113,9 @@ func TestVersionOnlyJSONRemainsText(t *testing.T) {
 }
 
 func TestReaderNext(t *testing.T) {
-	msg := a2ui.ServerMessage{
+	msg := v09.ServerMessage{
 		Version: "v0.9",
-		CreateSurface: &a2ui.CreateSurface{
+		CreateSurface: &v09.CreateSurface{
 			SurfaceID: "reader",
 			CatalogID: "cat",
 		},
@@ -143,9 +144,9 @@ func TestReaderNext(t *testing.T) {
 }
 
 func TestSingleJSONMessage(t *testing.T) {
-	msg := a2ui.ServerMessage{
+	msg := v09.ServerMessage{
 		Version: "v0.9",
-		CreateSurface: &a2ui.CreateSurface{
+		CreateSurface: &v09.CreateSurface{
 			SurfaceID: "s1",
 			CatalogID: "cat1",
 		},
@@ -174,9 +175,9 @@ func TestSingleJSONMessage(t *testing.T) {
 }
 
 func TestWrappedInTags(t *testing.T) {
-	msg := a2ui.ServerMessage{
+	msg := v09.ServerMessage{
 		Version: "v0.9",
-		UpdateDataModel: &a2ui.UpdateDataModel{
+		UpdateDataModel: &v09.UpdateDataModel{
 			SurfaceID: "s1",
 			Value:     map[string]any{"name": "Alice"},
 		},
@@ -206,9 +207,9 @@ func TestWrappedInTags(t *testing.T) {
 }
 
 func TestMixedTextAndJSON(t *testing.T) {
-	msg := a2ui.ServerMessage{
+	msg := v09.ServerMessage{
 		Version: "v0.9",
-		DeleteSurface: &a2ui.DeleteSurface{
+		DeleteSurface: &v09.DeleteSurface{
 			SurfaceID: "s1",
 		},
 	}
@@ -233,9 +234,9 @@ func TestMixedTextAndJSON(t *testing.T) {
 }
 
 func TestChunkedInput(t *testing.T) {
-	msg := a2ui.ServerMessage{
+	msg := v09.ServerMessage{
 		Version: "v0.9",
-		CreateSurface: &a2ui.CreateSurface{
+		CreateSurface: &v09.CreateSurface{
 			SurfaceID: "chunked",
 			CatalogID: "cat",
 		},
@@ -270,9 +271,9 @@ func TestChunkedInput(t *testing.T) {
 }
 
 func TestBareJSONMessage(t *testing.T) {
-	msg := a2ui.ServerMessage{
+	msg := v09.ServerMessage{
 		Version: "v0.9",
-		DeleteSurface: &a2ui.DeleteSurface{
+		DeleteSurface: &v09.DeleteSurface{
 			SurfaceID: "s1",
 		},
 	}
@@ -299,9 +300,9 @@ func TestBareJSONMessage(t *testing.T) {
 }
 
 func TestChunkedBareJSONMessage(t *testing.T) {
-	msg := a2ui.ServerMessage{
+	msg := v09.ServerMessage{
 		Version: "v0.9",
-		CreateSurface: &a2ui.CreateSurface{
+		CreateSurface: &v09.CreateSurface{
 			SurfaceID: "bare",
 			CatalogID: "cat",
 		},
@@ -357,21 +358,21 @@ func TestNonMessageJSONRemainsText(t *testing.T) {
 }
 
 func TestMultipleMessagesInOneBlock(t *testing.T) {
-	msg1 := a2ui.ServerMessage{
+	msg1 := v09.ServerMessage{
 		Version: "v0.9",
-		CreateSurface: &a2ui.CreateSurface{
+		CreateSurface: &v09.CreateSurface{
 			SurfaceID: "s1",
 			CatalogID: "cat",
 		},
 	}
-	msg2 := a2ui.ServerMessage{
+	msg2 := v09.ServerMessage{
 		Version: "v0.9",
-		UpdateComponents: &a2ui.UpdateComponents{
+		UpdateComponents: &v09.UpdateComponents{
 			SurfaceID: "s1",
-			Components: []a2ui.Component{
+			Components: []v09.Component{
 				{
 					ID:   "root",
-					Text: &a2ui.TextComponent{Text: a2ui.StringLiteral("hi")},
+					Text: &v09.TextComponent{Text: v09.StringLiteral("hi")},
 				},
 			},
 		},
@@ -401,16 +402,16 @@ func TestMultipleMessagesInOneBlock(t *testing.T) {
 }
 
 func TestMultipleBlocks(t *testing.T) {
-	msg1 := a2ui.ServerMessage{
+	msg1 := v09.ServerMessage{
 		Version: "v0.9",
-		CreateSurface: &a2ui.CreateSurface{
+		CreateSurface: &v09.CreateSurface{
 			SurfaceID: "s1",
 			CatalogID: "cat",
 		},
 	}
-	msg2 := a2ui.ServerMessage{
+	msg2 := v09.ServerMessage{
 		Version: "v0.9",
-		DeleteSurface: &a2ui.DeleteSurface{
+		DeleteSurface: &v09.DeleteSurface{
 			SurfaceID: "s1",
 		},
 	}
@@ -435,9 +436,9 @@ func TestMultipleBlocks(t *testing.T) {
 func TestEscapedBracesInStrings(t *testing.T) {
 	// A message where a string value contains braces — the parser must not
 	// be confused by them.
-	msg := a2ui.ServerMessage{
+	msg := v09.ServerMessage{
 		Version: "v0.9",
-		UpdateDataModel: &a2ui.UpdateDataModel{
+		UpdateDataModel: &v09.UpdateDataModel{
 			SurfaceID: "s1",
 			Value:     map[string]any{"code": "if (x) { y }"},
 		},
@@ -465,9 +466,9 @@ func TestEscapedBracesInStrings(t *testing.T) {
 func TestResetAndReuse(t *testing.T) {
 	p := NewParser()
 
-	msg := a2ui.ServerMessage{
+	msg := v09.ServerMessage{
 		Version: "v0.9",
-		CreateSurface: &a2ui.CreateSurface{
+		CreateSurface: &v09.CreateSurface{
 			SurfaceID: "s1",
 			CatalogID: "cat",
 		},
@@ -500,8 +501,8 @@ func collectText(parts []ResponsePart) string {
 	return b
 }
 
-func collectMessages(parts []ResponsePart) []a2ui.ServerMessage {
-	var msgs []a2ui.ServerMessage
+func collectMessages(parts []ResponsePart) []v09.ServerMessage {
+	var msgs []v09.ServerMessage
 	for _, p := range parts {
 		msgs = append(msgs, p.Messages...)
 	}

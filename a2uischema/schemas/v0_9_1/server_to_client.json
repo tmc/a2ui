@@ -15,7 +15,7 @@
       "type": "object",
       "properties": {
         "version": {
-          "const": "v0.9"
+          "enum": ["v0.9", "v0.9.1"]
         },
         "createSurface": {
           "type": "object",
@@ -49,11 +49,11 @@
       "type": "object",
       "properties": {
         "version": {
-          "const": "v0.9"
+          "enum": ["v0.9", "v0.9.1"]
         },
         "updateComponents": {
           "type": "object",
-          "description": "Updates a surface with a new set of components. This message can be sent multiple times to update the component tree of an existing surface. One of the components in one of the components lists MUST have an 'id' of 'root' to serve as the root of the component tree. The createSurface message MUST have been previously sent with the 'catalogId' that is in this message.",
+          "description": "Updates a surface with a new set of components. This message can be sent multiple times to update the component tree of an existing surface. One of the components in one of the components lists MUST have an 'id' of 'root' to serve as the root of the component tree. A createSurface message MUST have been previously sent for the 'surfaceId' in this message; the surface's catalog is the one specified by that createSurface.",
           "properties": {
             "surfaceId": {
               "type": "string",
@@ -80,11 +80,11 @@
       "type": "object",
       "properties": {
         "version": {
-          "const": "v0.9"
+          "enum": ["v0.9", "v0.9.1"]
         },
         "updateDataModel": {
           "type": "object",
-          "description": "Updates the data model for an existing surface. This message can be sent multiple times to update the data model. The createSurface message MUST have been previously sent with the 'catalogId' that is in this message.",
+          "description": "Updates the data model for an existing surface. This message can be sent multiple times to update the data model. A createSurface message MUST have been previously sent for the 'surfaceId' in this message; the surface's catalog is the one specified by that createSurface.",
           "properties": {
             "surfaceId": {
               "type": "string",
@@ -110,11 +110,11 @@
       "type": "object",
       "properties": {
         "version": {
-          "const": "v0.9"
+          "enum": ["v0.9", "v0.9.1"]
         },
         "deleteSurface": {
           "type": "object",
-          "description": "Signals the client to delete the surface identified by 'surfaceId'. The createSurface message MUST have been previously sent with the 'catalogId' that is in this message.",
+          "description": "Signals the client to delete the surface identified by 'surfaceId'. A createSurface message MUST have been previously sent for the 'surfaceId' in this message; the surface's catalog is the one specified by that createSurface.",
           "properties": {
             "surfaceId": {
               "type": "string",

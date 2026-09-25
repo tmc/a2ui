@@ -8,7 +8,7 @@ import (
 
 func ExampleCreateDataPart() {
 	part, err := a2a.CreateDataPart(map[string]any{
-		"version": "v0.10",
+		"version": "v1.0",
 		"updateDataModel": map[string]any{
 			"surfaceId": "dashboard",
 			"value":     map[string]any{"status": "ready"},

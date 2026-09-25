@@ -54,7 +54,7 @@ type payloadConformanceCase struct {
 
 func payloadConformanceCases() []payloadConformanceCase {
 	// These cases mirror the has_parts and fix_payload cases in
-	// agent_sdks/conformance/suites/parser.yaml.
+	// conformance/agent/legacy/parser.yaml.
 	return []payloadConformanceCase{
 		{
 			name:    "test_parse_empty_response",

@@ -33,7 +33,7 @@ func ExampleReader_Next() {
 }
 
 func ExampleReader_Next_payload() {
-	input := `Before <a2ui-json>{"version":"v0.10","functionCallId":"call-1","callFunction":{"call":"lookup","returnType":"string"}}</a2ui-json>`
+	input := `Before <a2ui-json>{"version":"v1.0","callRendererFunction":{"functionCallId":"call-1","callFunction":{"call":"lookup","catalogId":"https://example.com/catalog.json"}}}</a2ui-json>`
 	r := a2uistream.NewReader(strings.NewReader(input))
 	for {
 		part, err := r.Next()
@@ -45,11 +45,12 @@ func ExampleReader_Next_payload() {
 		}
 		for _, payload := range part.Payload {
 			fmt.Println(payload["version"])
-			fmt.Println(payload["functionCallId"])
+			call := payload["callRendererFunction"].(map[string]any)
+			fmt.Println(call["functionCallId"])
 		}
 	}
 	// Output:
-	// v0.10
+	// v1.0
 	// call-1
 }
 

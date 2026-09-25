@@ -108,3 +108,27 @@ func (c Component) ComponentType() string {
 	}
 	return componentType
 }
+
+// componentCommon holds the fields shared by all components.
+type componentCommon struct {
+	ID            string                   `json:"id"`
+	Accessibility *AccessibilityAttributes `json:"accessibility,omitempty"`
+	Weight        *float64                 `json:"weight,omitempty"`
+	Checks        []CheckRule              `json:"checks,omitempty"`
+}
+
+func (c Component) common() componentCommon {
+	return componentCommon{
+		ID:            c.ID,
+		Accessibility: c.Accessibility,
+		Weight:        c.Weight,
+		Checks:        c.Checks,
+	}
+}
+
+func (c *Component) setCommon(cm componentCommon) {
+	c.ID = cm.ID
+	c.Accessibility = cm.Accessibility
+	c.Weight = cm.Weight
+	c.Checks = cm.Checks
+}

@@ -26,16 +26,4 @@ var (
 
 	//go:embed schemas/v0_9_1/basic_catalog_rules.txt
 	basicCatalogRulesV091 string
-
-	//go:embed schemas/v0_10/server_to_client.json
-	serverToClientV010 []byte
-
-	//go:embed schemas/v0_10/common_types.json
-	commonTypesV010 []byte
-
-	//go:embed schemas/v0_10/basic_catalog.json
-	basicCatalogV010 []byte
-
-	//go:embed schemas/v0_10/basic_catalog_rules.txt
-	basicCatalogRulesV010 string
 )

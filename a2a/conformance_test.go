@@ -126,7 +126,7 @@ func normalizeNilMap(m map[string]any) any {
 }
 
 func a2aConformanceCases() []conformanceCase {
-	// These cases mirror agent_sdks/conformance/suites/a2a_integration.yaml.
+	// These cases mirror conformance/extensions/a2a/a2a_integration.yaml.
 	return []conformanceCase{
 		{
 			Name:   "test_create_a2ui_part",
