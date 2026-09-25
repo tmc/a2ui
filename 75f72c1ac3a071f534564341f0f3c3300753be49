@@ -1,0 +1,9 @@
+commit=75f72c1ac3a071f534564341f0f3c3300753be49
+date=2026-09-25T15:45:01-07:00
+agent=claude-code 2.1.280 (Claude Code)
+model=claude-opus-5-5[1m]
+tty=not a tty
+pid=66237
+iterm_session=w8t5p3:BBD74F4E-8B93-44C7-81FA-0CF427A0C1EF
+session=dfad41e1-5768-4857-bebc-2c3b044a17fa
+generator=a2uigen b32d78b4 (a2ui-project/a2ui add-go-sdk-generator on d92f5b10)
