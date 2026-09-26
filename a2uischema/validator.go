@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"slices"
 
-	"github.com/tmc/a2ui"
 	v09 "github.com/tmc/a2ui/v09"
 )
 
@@ -54,40 +53,42 @@ func NewValidator(catalog *Catalog) *Validator {
 	return v
 }
 
-// ParseMessages parses a single message object or an array of messages.
-func (v *Validator) ParseMessages(data []byte) ([]v09.ServerMessage, error) {
+// ParseMessagesV09 parses a single A2UI v0.9 or v0.9.1 message object or an
+// array of them.
+func (v *Validator) ParseMessagesV09(data []byte) ([]v09.ServerMessage, error) {
 	data = bytes.TrimSpace(data)
 	if len(data) == 0 {
-		return nil, fmt.Errorf("schema: empty payload")
+		return nil, fmt.Errorf("a2uischema: empty payload")
 	}
 	if data[0] == '[' {
 		var msgs []v09.ServerMessage
 		if err := json.Unmarshal(data, &msgs); err != nil {
-			return nil, fmt.Errorf("schema: parse messages: %w", err)
+			return nil, fmt.Errorf("a2uischema: parse messages: %w", err)
 		}
 		return msgs, nil
 	}
 	var msg v09.ServerMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
-		return nil, fmt.Errorf("schema: parse message: %w", err)
+		return nil, fmt.Errorf("a2uischema: parse message: %w", err)
 	}
 	return []v09.ServerMessage{msg}, nil
 }
 
-// ValidateJSON parses and validates a raw JSON payload.
+// ValidateJSON parses and validates a raw JSON payload
+// using the protocol version of the validator's catalog.
 func (v *Validator) ValidateJSON(data []byte) error {
-	if v.catalog != nil && v.catalog.Version == Version1 {
-		msgs, err := v.parseMessagesV1(data)
+	if v.catalogVersion() == Version1 {
+		msgs, err := v.ParseMessages(data)
 		if err != nil {
 			return err
 		}
-		return v.validateMessagesV1(msgs)
+		return v.ValidateMessages(msgs)
 	}
-	msgs, err := v.ParseMessages(data)
+	msgs, err := v.ParseMessagesV09(data)
 	if err != nil {
 		return err
 	}
-	return v.ValidateMessages(msgs)
+	return v.ValidateMessagesV09(msgs)
 }
 
 // ValidateExample validates either a raw message payload or an example file
@@ -106,28 +107,20 @@ func (v *Validator) ValidateExample(data []byte) error {
 	return v.ValidateJSON(example.Messages)
 }
 
-// ValidateVersionMessages validates a batch of A2UI messages for any supported version.
-func (v *Validator) ValidateVersionMessages(msgs any) error {
-	switch msgs := msgs.(type) {
-	case []v09.ServerMessage:
-		return v.ValidateMessages(msgs)
-	case []a2ui.AgentMessage:
-		return v.validateMessagesV1(msgs)
-	default:
-		return fmt.Errorf("schema: unsupported messages type %T", msgs)
+// ValidateMessagesV09 validates a batch of A2UI v0.9 or v0.9.1 messages.
+// The validator's catalog must be a v0.9 or v0.9.1 catalog.
+func (v *Validator) ValidateMessagesV09(msgs []v09.ServerMessage) error {
+	if version := v.catalogVersion(); !isV09WireVersion(version) {
+		return fmt.Errorf("a2uischema: catalog version = %q, want %q or %q", version, Version09, Version091)
 	}
-}
-
-// ValidateMessages validates a batch of A2UI v0.9 messages.
-func (v *Validator) ValidateMessages(msgs []v09.ServerMessage) error {
 	if len(msgs) == 0 {
-		return fmt.Errorf("schema: no messages to validate")
+		return fmt.Errorf("a2uischema: no messages to validate")
 	}
 	surfaces := make(map[string]string)
 	surfaceComponents := make(map[string]map[string]bool)
 	for i, msg := range msgs {
 		if err := v.validateMessage(msg); err != nil {
-			return fmt.Errorf("schema: message[%d]: %w", i, err)
+			return fmt.Errorf("a2uischema: message[%d]: %w", i, err)
 		}
 		switch {
 		case msg.CreateSurface != nil:
@@ -197,6 +190,13 @@ func (v *Validator) validateMessage(msg v09.ServerMessage) error {
 		return fmt.Errorf("message has no payload")
 	}
 	return nil
+}
+
+func (v *Validator) catalogVersion() Version {
+	if v.catalog == nil {
+		return ""
+	}
+	return v.catalog.Version
 }
 
 func isV09WireVersion(version Version) bool {

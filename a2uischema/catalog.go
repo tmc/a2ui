@@ -40,18 +40,20 @@ func BasicCatalogConfig(version Version) (CatalogConfig, error) {
 
 // Catalog is a processed catalog plus the schemas needed to reason about it.
 type Catalog struct {
-	Version              Version
-	Name                 string
-	ServerToClientSchema map[string]any
-	CommonTypesSchema    map[string]any
-	CatalogSchema        map[string]any
+	Version Version
+	Name    string
+	// MessageSchema is the schema for agent messages: agent_to_renderer.json
+	// for 1.x, server_to_client.json for v0.9 and v0.9.1.
+	MessageSchema     map[string]any
+	CommonTypesSchema map[string]any
+	CatalogSchema     map[string]any
 }
 
 // ID returns the catalog identifier.
 func (c *Catalog) ID() (string, error) {
 	id, ok := c.CatalogSchema[CatalogIDKey].(string)
 	if !ok || id == "" {
-		return "", fmt.Errorf("schema: catalog %q missing catalogId", c.Name)
+		return "", fmt.Errorf("a2uischema: catalog %q missing catalogId", c.Name)
 	}
 	return id, nil
 }
@@ -64,18 +66,18 @@ func (c *Catalog) Validator() *Validator {
 // WithPruning returns a copy of the catalog pruned to the requested components and messages.
 func (c *Catalog) WithPruning(allowedComponents, allowedMessages []string) (*Catalog, error) {
 	if c == nil {
-		return nil, fmt.Errorf("schema: nil catalog")
+		return nil, fmt.Errorf("a2uischema: nil catalog")
 	}
-	serverSchema, commonSchema, catalogSchema, err := cloneCatalogSchemas(c)
+	messageSchema, commonSchema, catalogSchema, err := cloneCatalogSchemas(c)
 	if err != nil {
 		return nil, err
 	}
 	out := &Catalog{
-		Version:              c.Version,
-		Name:                 c.Name,
-		ServerToClientSchema: serverSchema,
-		CommonTypesSchema:    commonSchema,
-		CatalogSchema:        catalogSchema,
+		Version:           c.Version,
+		Name:              c.Name,
+		MessageSchema:     messageSchema,
+		CommonTypesSchema: commonSchema,
+		CatalogSchema:     catalogSchema,
 	}
 	if len(allowedComponents) > 0 {
 		components, _ := out.CatalogSchema[CatalogComponentsKey].(map[string]any)
@@ -109,7 +111,7 @@ func (c *Catalog) WithPruning(allowedComponents, allowedMessages []string) (*Cat
 		}
 	}
 	if len(allowedMessages) > 0 {
-		defs, _ := out.ServerToClientSchema["$defs"].(map[string]any)
+		defs, _ := out.MessageSchema["$defs"].(map[string]any)
 		if defs != nil {
 			filteredDefs := make(map[string]any)
 			for _, name := range allowedMessages {
@@ -117,9 +119,9 @@ func (c *Catalog) WithPruning(allowedComponents, allowedMessages []string) (*Cat
 					filteredDefs[name] = value
 				}
 			}
-			out.ServerToClientSchema["$defs"] = filteredDefs
+			out.MessageSchema["$defs"] = filteredDefs
 		}
-		if oneOf, ok := out.ServerToClientSchema["oneOf"].([]any); ok {
+		if oneOf, ok := out.MessageSchema["oneOf"].([]any); ok {
 			filtered := oneOf[:0]
 			for _, item := range oneOf {
 				ref, _ := item.(map[string]any)["$ref"].(string)
@@ -131,7 +133,7 @@ func (c *Catalog) WithPruning(allowedComponents, allowedMessages []string) (*Cat
 					filtered = append(filtered, item)
 				}
 			}
-			out.ServerToClientSchema["oneOf"] = filtered
+			out.MessageSchema["oneOf"] = filtered
 		}
 	}
 	return out, nil
@@ -139,7 +141,7 @@ func (c *Catalog) WithPruning(allowedComponents, allowedMessages []string) (*Cat
 
 // RenderAsLLMInstructions renders the schemas as a schema block suitable for prompts.
 func (c *Catalog) RenderAsLLMInstructions() (string, error) {
-	serverSchema, err := marshalIndented(c.ServerToClientSchema)
+	messageSchema, err := marshalIndented(c.MessageSchema)
 	if err != nil {
 		return "", err
 	}
@@ -154,7 +156,7 @@ func (c *Catalog) RenderAsLLMInstructions() (string, error) {
 	var b strings.Builder
 	b.WriteString(A2UISchemaBlockStart)
 	b.WriteString("\n### Server To Client Schema:\n")
-	b.Write(serverSchema)
+	b.Write(messageSchema)
 	if len(commonTypes) > 0 && string(commonTypes) != "{}" {
 		b.WriteString("\n\n### Common Types Schema:\n")
 		b.Write(commonTypes)
@@ -189,7 +191,7 @@ func (c *Catalog) LoadExamples(path string, validate bool) (string, error) {
 		}
 		if validate {
 			if err := validator.ValidateExample(data); err != nil {
-				return "", fmt.Errorf("schema: validate example %s: %w", file, err)
+				return "", fmt.Errorf("a2uischema: validate example %s: %w", file, err)
 			}
 		}
 		name := filepath.Base(file)
@@ -320,25 +322,25 @@ func normalizeGlobPattern(pattern string) string {
 	return strings.ReplaceAll(pattern, "[!", "[^")
 }
 
-func newCatalog(version Version, name string, serverToClientSchema, commonTypesSchema, catalogSchema []byte) (*Catalog, error) {
-	serverMap, err := unmarshalJSONMap(serverToClientSchema)
+func newCatalog(version Version, name string, messageSchema, commonTypesSchema, catalogSchema []byte) (*Catalog, error) {
+	messageMap, err := unmarshalJSONMap(messageSchema)
 	if err != nil {
-		return nil, fmt.Errorf("schema: decode server_to_client schema: %w", err)
+		return nil, fmt.Errorf("a2uischema: decode message schema: %w", err)
 	}
 	commonMap, err := unmarshalJSONMap(commonTypesSchema)
 	if err != nil {
-		return nil, fmt.Errorf("schema: decode common_types schema: %w", err)
+		return nil, fmt.Errorf("a2uischema: decode common_types schema: %w", err)
 	}
 	catalogMap, err := unmarshalJSONMap(catalogSchema)
 	if err != nil {
-		return nil, fmt.Errorf("schema: decode catalog schema: %w", err)
+		return nil, fmt.Errorf("a2uischema: decode catalog schema: %w", err)
 	}
 	return &Catalog{
-		Version:              version,
-		Name:                 name,
-		ServerToClientSchema: serverMap,
-		CommonTypesSchema:    commonMap,
-		CatalogSchema:        catalogMap,
+		Version:           version,
+		Name:              name,
+		MessageSchema:     messageMap,
+		CommonTypesSchema: commonMap,
+		CatalogSchema:     catalogMap,
 	}, nil
 }
 
@@ -381,23 +383,23 @@ func unmarshalJSONMap(data []byte) (map[string]any, error) {
 	return out, nil
 }
 
-func cloneCatalogSchemas(c *Catalog) (serverSchema, commonSchema, catalogSchema map[string]any, err error) {
+func cloneCatalogSchemas(c *Catalog) (messageSchema, commonSchema, catalogSchema map[string]any, err error) {
 	if c == nil {
-		return nil, nil, nil, fmt.Errorf("schema: nil catalog")
+		return nil, nil, nil, fmt.Errorf("a2uischema: nil catalog")
 	}
-	serverSchema, err = cloneJSONMap(c.ServerToClientSchema)
+	messageSchema, err = cloneJSONMap(c.MessageSchema)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("schema: clone server_to_client schema: %w", err)
+		return nil, nil, nil, fmt.Errorf("a2uischema: clone message schema: %w", err)
 	}
 	commonSchema, err = cloneJSONMap(c.CommonTypesSchema)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("schema: clone common_types schema: %w", err)
+		return nil, nil, nil, fmt.Errorf("a2uischema: clone common_types schema: %w", err)
 	}
 	catalogSchema, err = cloneJSONMap(c.CatalogSchema)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("schema: clone catalog schema: %w", err)
+		return nil, nil, nil, fmt.Errorf("a2uischema: clone catalog schema: %w", err)
 	}
-	return serverSchema, commonSchema, catalogSchema, nil
+	return messageSchema, commonSchema, catalogSchema, nil
 }
 
 func cloneJSONMap(m map[string]any) (map[string]any, error) {

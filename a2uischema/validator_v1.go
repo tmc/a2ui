@@ -10,28 +10,34 @@ import (
 	"github.com/tmc/a2ui"
 )
 
-func (v *Validator) parseMessagesV1(data []byte) ([]a2ui.AgentMessage, error) {
+// ParseMessages parses a single A2UI 1.x message object or an array of them.
+func (v *Validator) ParseMessages(data []byte) ([]a2ui.AgentMessage, error) {
 	data = bytes.TrimSpace(data)
 	if len(data) == 0 {
-		return nil, fmt.Errorf("schema: empty payload")
+		return nil, fmt.Errorf("a2uischema: empty payload")
 	}
 	if data[0] == '[' {
 		var msgs []a2ui.AgentMessage
 		if err := json.Unmarshal(data, &msgs); err != nil {
-			return nil, fmt.Errorf("schema: parse messages: %w", err)
+			return nil, fmt.Errorf("a2uischema: parse messages: %w", err)
 		}
 		return msgs, nil
 	}
 	var msg a2ui.AgentMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
-		return nil, fmt.Errorf("schema: parse message: %w", err)
+		return nil, fmt.Errorf("a2uischema: parse message: %w", err)
 	}
 	return []a2ui.AgentMessage{msg}, nil
 }
 
-func (v *Validator) validateMessagesV1(msgs []a2ui.AgentMessage) error {
+// ValidateMessages validates a batch of A2UI 1.x messages.
+// The validator's catalog must be a 1.x catalog.
+func (v *Validator) ValidateMessages(msgs []a2ui.AgentMessage) error {
+	if version := v.catalogVersion(); version != Version1 {
+		return fmt.Errorf("a2uischema: catalog version = %q, want %q", version, Version1)
+	}
 	if len(msgs) == 0 {
-		return fmt.Errorf("schema: no messages to validate")
+		return fmt.Errorf("a2uischema: no messages to validate")
 	}
 	// Components may reference children that arrive in later messages
 	// (progressive rendering), so unknown references are only reported
@@ -40,7 +46,7 @@ func (v *Validator) validateMessagesV1(msgs []a2ui.AgentMessage) error {
 	pending := make(map[string][]componentRef)
 	for i, msg := range msgs {
 		if err := v.validateMessageV1(msg); err != nil {
-			return fmt.Errorf("schema: message[%d]: %w", i, err)
+			return fmt.Errorf("a2uischema: message[%d]: %w", i, err)
 		}
 		switch {
 		case msg.CreateSurface != nil:
@@ -85,7 +91,7 @@ func (v *Validator) validateMessagesV1(msgs []a2ui.AgentMessage) error {
 	for _, id := range slices.Sorted(maps.Keys(pending)) {
 		if refs := pending[id]; len(refs) > 0 {
 			r := refs[0]
-			return fmt.Errorf("schema: surface %q: %w", id, validationError(ValidationUnknownComponentRef, "", r.from, r.to, "", fmt.Sprintf("component %q references unknown component %q", r.from, r.to)))
+			return fmt.Errorf("a2uischema: surface %q: %w", id, validationError(ValidationUnknownComponentRef, "", r.from, r.to, "", fmt.Sprintf("component %q references unknown component %q", r.from, r.to)))
 		}
 	}
 	return nil
@@ -371,7 +377,11 @@ func (v *Validator) validateImageComponentV1(component a2ui.ImageComponent) erro
 }
 
 func (v *Validator) validateIconComponentV1(component a2ui.IconComponent) error {
-	if component.Name.Name == nil && component.Name.Path == nil {
+	name := component.Name
+	switch {
+	case name.SVGPath != nil:
+		return v.validateDynamicStringV1(*name.SVGPath, 0)
+	case name.Name == nil && name.Binding == nil:
 		return fmt.Errorf("icon.name is required")
 	}
 	return nil
@@ -600,24 +610,17 @@ func validateFunctionResponseV1(response a2ui.FunctionResponse) error {
 	if response.FunctionCallID == "" {
 		return fmt.Errorf("functionCallId is required")
 	}
-	hasValue := response.HasValue || response.Value != nil
-	hasError := response.Error != nil
 	switch {
-	case hasValue && hasError:
+	case response.Error == nil:
+		return nil
+	case response.Value != nil:
 		return fmt.Errorf("must not have both value and error")
-	case hasValue:
-		return nil
-	case hasError:
-		if response.Error.Code == "" {
-			return fmt.Errorf("error.code is required")
-		}
-		if response.Error.Message == "" {
-			return fmt.Errorf("error.message is required")
-		}
-		return nil
-	default:
-		return fmt.Errorf("must have value or error")
+	case response.Error.Code == "":
+		return fmt.Errorf("error.code is required")
+	case response.Error.Message == "":
+		return fmt.Errorf("error.message is required")
 	}
+	return nil
 }
 
 func componentRefsV1(component a2ui.Component) ([]string, error) {

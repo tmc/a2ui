@@ -16,7 +16,7 @@ type SchemaModifier func(schema map[string]any) error
 type SchemaManager struct {
 	version               Version
 	acceptsInlineCatalogs bool
-	serverToClientSchema  map[string]any
+	messageSchema         map[string]any
 	commonTypesSchema     map[string]any
 	supportedCatalogs     []*Catalog
 	catalogExamplePaths   map[string]string
@@ -25,14 +25,14 @@ type SchemaManager struct {
 
 // NewSchemaManager constructs a schema manager.
 func NewSchemaManager(version Version, catalogs []CatalogConfig, acceptsInlineCatalogs bool, schemaModifiers ...SchemaModifier) (*SchemaManager, error) {
-	serverSchema, commonSchema, err := embeddedSchemas(version)
+	messageSchema, commonSchema, err := embeddedSchemas(version)
 	if err != nil {
 		return nil, err
 	}
 	manager := &SchemaManager{
 		version:               version,
 		acceptsInlineCatalogs: acceptsInlineCatalogs,
-		serverToClientSchema:  serverSchema,
+		messageSchema:         messageSchema,
 		commonTypesSchema:     commonSchema,
 		catalogExamplePaths:   make(map[string]string),
 		schemaModifiers:       schemaModifiers,
@@ -40,21 +40,21 @@ func NewSchemaManager(version Version, catalogs []CatalogConfig, acceptsInlineCa
 	for _, cfg := range catalogs {
 		data, err := cfg.Provider.Load()
 		if err != nil {
-			return nil, fmt.Errorf("schema: load catalog %q: %w", cfg.Name, err)
+			return nil, fmt.Errorf("a2uischema: load catalog %q: %w", cfg.Name, err)
 		}
-		serverSchemaData, err := marshalJSON(serverSchema)
+		messageSchemaData, err := marshalJSON(messageSchema)
 		if err != nil {
-			return nil, fmt.Errorf("schema: encode server_to_client schema: %w", err)
+			return nil, fmt.Errorf("a2uischema: encode message schema: %w", err)
 		}
 		commonSchemaData, err := marshalJSON(commonSchema)
 		if err != nil {
-			return nil, fmt.Errorf("schema: encode common_types schema: %w", err)
+			return nil, fmt.Errorf("a2uischema: encode common_types schema: %w", err)
 		}
-		catalog, err := newCatalog(version, cfg.Name, serverSchemaData, commonSchemaData, data)
+		catalog, err := newCatalog(version, cfg.Name, messageSchemaData, commonSchemaData, data)
 		if err != nil {
 			return nil, err
 		}
-		if err := manager.applyModifiers(catalog.ServerToClientSchema); err != nil {
+		if err := manager.applyModifiers(catalog.MessageSchema); err != nil {
 			return nil, err
 		}
 		if err := manager.applyModifiers(catalog.CommonTypesSchema); err != nil {
@@ -87,9 +87,44 @@ func (m *SchemaManager) SupportedCatalogIDs() []string {
 	return ids
 }
 
-// SelectedCatalog selects the catalog for the provided client capabilities and pruning.
-func (m *SchemaManager) SelectedCatalog(clientCapabilities any, allowedComponents, allowedMessages []string) (*Catalog, error) {
-	selected, err := m.selectCatalogFor(clientCapabilities)
+// SelectedCatalog selects the catalog for A2UI 1.x renderer capabilities
+// and prunes it to the allowed components and messages.
+// A nil caps selects the default catalog for any manager version;
+// otherwise the manager must be for version 1.x.
+func (m *SchemaManager) SelectedCatalog(caps *a2ui.RendererCapabilities, allowedComponents, allowedMessages []string) (*Catalog, error) {
+	var selected *Catalog
+	var err error
+	switch {
+	case caps == nil:
+		selected, err = m.defaultCatalog()
+	case m.version != Version1:
+		err = fmt.Errorf("a2uischema: manager version = %q, got 1.x capabilities", m.version)
+	default:
+		selected, err = m.selectCatalogV1(caps)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return selected.WithPruning(allowedComponents, allowedMessages)
+}
+
+// SelectedCatalogV09 is like [SchemaManager.SelectedCatalog] for A2UI v0.9
+// client capabilities. The manager must be for version v0.9 or v0.9.1.
+func (m *SchemaManager) SelectedCatalogV09(caps *v09.ClientCapabilities, allowedComponents, allowedMessages []string) (*Catalog, error) {
+	if !isV09WireVersion(m.version) {
+		return nil, fmt.Errorf("a2uischema: manager version = %q, got v0.9 capabilities", m.version)
+	}
+	selected, err := m.selectCatalog(caps)
+	if err != nil {
+		return nil, err
+	}
+	return selected.WithPruning(allowedComponents, allowedMessages)
+}
+
+// SelectedCatalogV091 is like [SchemaManager.SelectedCatalog] for A2UI v0.9.1
+// client capabilities. The manager must be for version v0.9.1.
+func (m *SchemaManager) SelectedCatalogV091(caps *a2uiv091.ClientCapabilities, allowedComponents, allowedMessages []string) (*Catalog, error) {
+	selected, err := m.selectCatalogV091(caps)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +134,7 @@ func (m *SchemaManager) SelectedCatalog(clientCapabilities any, allowedComponent
 // LoadExamples loads examples for a catalog if configured.
 func (m *SchemaManager) LoadExamples(catalog *Catalog, validate bool) (string, error) {
 	if catalog == nil {
-		return "", fmt.Errorf("schema: nil catalog")
+		return "", fmt.Errorf("a2uischema: nil catalog")
 	}
 	id, err := catalog.ID()
 	if err != nil {
@@ -109,34 +144,66 @@ func (m *SchemaManager) LoadExamples(catalog *Catalog, validate bool) (string, e
 	return catalog.LoadExamples(path, validate)
 }
 
+// PromptOptions configures [SchemaManager.GenerateSystemPrompt].
+type PromptOptions struct {
+	RoleDescription     string
+	WorkflowDescription string // appended to DefaultWorkflowRules
+	UIDescription       string
+
+	// At most one of the capabilities fields may be set, and it must match
+	// the manager's version. If none is set, the default catalog is used.
+	Capabilities     *a2ui.RendererCapabilities
+	CapabilitiesV09  *v09.ClientCapabilities
+	CapabilitiesV091 *a2uiv091.ClientCapabilities
+
+	AllowedComponents []string // prune the catalog to these components
+	AllowedMessages   []string // prune the schema to these messages
+
+	IncludeSchema    bool
+	IncludeExamples  bool
+	ValidateExamples bool // validate examples before including them
+}
+
 // GenerateSystemPrompt assembles the system prompt.
-func (m *SchemaManager) GenerateSystemPrompt(roleDescription, workflowDescription, uiDescription string, clientCapabilities any, allowedComponents, allowedMessages []string, includeSchema, includeExamples, validateExamples bool) (string, error) {
-	catalog, err := m.SelectedCatalog(clientCapabilities, allowedComponents, allowedMessages)
+func (m *SchemaManager) GenerateSystemPrompt(opts PromptOptions) (string, error) {
+	var catalog *Catalog
+	var err error
+	switch {
+	case opts.CapabilitiesV09 != nil && opts.CapabilitiesV091 != nil,
+		opts.Capabilities != nil && (opts.CapabilitiesV09 != nil || opts.CapabilitiesV091 != nil):
+		err = fmt.Errorf("a2uischema: more than one capabilities option set")
+	case opts.CapabilitiesV09 != nil:
+		catalog, err = m.SelectedCatalogV09(opts.CapabilitiesV09, opts.AllowedComponents, opts.AllowedMessages)
+	case opts.CapabilitiesV091 != nil:
+		catalog, err = m.SelectedCatalogV091(opts.CapabilitiesV091, opts.AllowedComponents, opts.AllowedMessages)
+	default:
+		catalog, err = m.SelectedCatalog(opts.Capabilities, opts.AllowedComponents, opts.AllowedMessages)
+	}
 	if err != nil {
 		return "", err
 	}
-	return m.generateSystemPrompt(catalog, roleDescription, workflowDescription, uiDescription, includeSchema, includeExamples, validateExamples)
+	return m.generateSystemPrompt(catalog, opts)
 }
 
-func (m *SchemaManager) generateSystemPrompt(catalog *Catalog, roleDescription, workflowDescription, uiDescription string, includeSchema, includeExamples, validateExamples bool) (string, error) {
-	parts := []string{roleDescription}
+func (m *SchemaManager) generateSystemPrompt(catalog *Catalog, opts PromptOptions) (string, error) {
+	parts := []string{opts.RoleDescription}
 	workflow := DefaultWorkflowRules
-	if workflowDescription != "" {
-		workflow += "\n" + workflowDescription
+	if opts.WorkflowDescription != "" {
+		workflow += "\n" + opts.WorkflowDescription
 	}
 	parts = append(parts, "## Workflow Description:\n"+workflow)
-	if uiDescription != "" {
-		parts = append(parts, "## UI Description:\n"+uiDescription)
+	if opts.UIDescription != "" {
+		parts = append(parts, "## UI Description:\n"+opts.UIDescription)
 	}
-	if includeSchema {
+	if opts.IncludeSchema {
 		schemaBlock, err := catalog.RenderAsLLMInstructions()
 		if err != nil {
 			return "", err
 		}
 		parts = append(parts, schemaBlock)
 	}
-	if includeExamples {
-		examples, err := m.LoadExamples(catalog, validateExamples)
+	if opts.IncludeExamples {
+		examples, err := m.LoadExamples(catalog, opts.ValidateExamples)
 		if err != nil {
 			return "", err
 		}
@@ -158,7 +225,7 @@ func (m *SchemaManager) applyModifiers(schema map[string]any) error {
 
 func (m *SchemaManager) selectCatalog(clientCapabilities *v09.ClientCapabilities) (*Catalog, error) {
 	if len(m.supportedCatalogs) == 0 {
-		return nil, fmt.Errorf("schema: no supported catalogs configured")
+		return nil, fmt.Errorf("a2uischema: no supported catalogs configured")
 	}
 	if clientCapabilities == nil || clientCapabilities.V09 == nil {
 		return m.supportedCatalogs[0], nil
@@ -166,7 +233,7 @@ func (m *SchemaManager) selectCatalog(clientCapabilities *v09.ClientCapabilities
 	caps := clientCapabilities.V09
 	if len(caps.InlineCatalogs) > 0 {
 		if !m.acceptsInlineCatalogs {
-			return nil, fmt.Errorf("schema: inline catalogs provided but not accepted")
+			return nil, fmt.Errorf("a2uischema: inline catalogs provided but not accepted")
 		}
 		base := m.supportedCatalogs[0]
 		if len(caps.SupportedCatalogIDs) > 0 {
@@ -193,15 +260,15 @@ func (m *SchemaManager) selectCatalog(clientCapabilities *v09.ClientCapabilities
 			}
 		}
 	}
-	return nil, fmt.Errorf("schema: no mutually supported catalog found")
+	return nil, fmt.Errorf("a2uischema: no mutually supported catalog found")
 }
 
 func (m *SchemaManager) selectCatalogV1(rendererCapabilities *a2ui.RendererCapabilities) (*Catalog, error) {
 	if m.version != Version1 {
-		return nil, fmt.Errorf("schema: manager version = %q, want %q", m.version, Version1)
+		return nil, fmt.Errorf("a2uischema: manager version = %q, want %q", m.version, Version1)
 	}
 	if len(m.supportedCatalogs) == 0 {
-		return nil, fmt.Errorf("schema: no supported catalogs configured")
+		return nil, fmt.Errorf("a2uischema: no supported catalogs configured")
 	}
 	if rendererCapabilities == nil || rendererCapabilities.V1 == nil {
 		return m.supportedCatalogs[0], nil
@@ -209,7 +276,7 @@ func (m *SchemaManager) selectCatalogV1(rendererCapabilities *a2ui.RendererCapab
 	caps := rendererCapabilities.V1
 	if len(caps.InlineCatalogs) > 0 {
 		if !m.acceptsInlineCatalogs {
-			return nil, fmt.Errorf("schema: inline catalogs provided but not accepted")
+			return nil, fmt.Errorf("a2uischema: inline catalogs provided but not accepted")
 		}
 		base := m.supportedCatalogs[0]
 		if len(caps.SupportedCatalogIDs) > 0 {
@@ -236,42 +303,22 @@ func (m *SchemaManager) selectCatalogV1(rendererCapabilities *a2ui.RendererCapab
 			}
 		}
 	}
-	return nil, fmt.Errorf("schema: no mutually supported catalog found")
+	return nil, fmt.Errorf("a2uischema: no mutually supported catalog found")
 }
 
-func (m *SchemaManager) selectCatalogFor(clientCapabilities any) (*Catalog, error) {
-	switch caps := clientCapabilities.(type) {
-	case nil:
-		if m.version == Version1 {
-			return m.selectCatalogV1(nil)
-		}
-		return m.selectCatalog(nil)
-	case *v09.ClientCapabilities:
-		if !isV09WireVersion(m.version) {
-			return nil, fmt.Errorf("schema: manager version = %q, got v0.9 capabilities", m.version)
-		}
-		return m.selectCatalog(caps)
-	case *a2uiv091.ClientCapabilities:
-		if m.version != Version091 {
-			return nil, fmt.Errorf("schema: manager version = %q, got v0.9.1 capabilities", m.version)
-		}
-		return m.selectCatalogV091(caps)
-	case *a2ui.RendererCapabilities:
-		if m.version != Version1 {
-			return nil, fmt.Errorf("schema: manager version = %q, got v1.0 capabilities", m.version)
-		}
-		return m.selectCatalogV1(caps)
-	default:
-		return nil, fmt.Errorf("schema: unsupported client capabilities type %T", clientCapabilities)
+func (m *SchemaManager) defaultCatalog() (*Catalog, error) {
+	if m.version == Version1 {
+		return m.selectCatalogV1(nil)
 	}
+	return m.selectCatalog(nil)
 }
 
 func (m *SchemaManager) selectCatalogV091(clientCapabilities *a2uiv091.ClientCapabilities) (*Catalog, error) {
 	if m.version != Version091 {
-		return nil, fmt.Errorf("schema: manager version = %q, want %q", m.version, Version091)
+		return nil, fmt.Errorf("a2uischema: manager version = %q, want %q", m.version, Version091)
 	}
 	if len(m.supportedCatalogs) == 0 {
-		return nil, fmt.Errorf("schema: no supported catalogs configured")
+		return nil, fmt.Errorf("a2uischema: no supported catalogs configured")
 	}
 	if clientCapabilities == nil || clientCapabilities.V091 == nil {
 		return m.supportedCatalogs[0], nil
@@ -279,7 +326,7 @@ func (m *SchemaManager) selectCatalogV091(clientCapabilities *a2uiv091.ClientCap
 	caps := clientCapabilities.V091
 	if len(caps.InlineCatalogs) > 0 {
 		if !m.acceptsInlineCatalogs {
-			return nil, fmt.Errorf("schema: inline catalogs provided but not accepted")
+			return nil, fmt.Errorf("a2uischema: inline catalogs provided but not accepted")
 		}
 		base := m.supportedCatalogs[0]
 		if len(caps.SupportedCatalogIDs) > 0 {
@@ -306,20 +353,20 @@ func (m *SchemaManager) selectCatalogV091(clientCapabilities *a2uiv091.ClientCap
 			}
 		}
 	}
-	return nil, fmt.Errorf("schema: no mutually supported catalog found")
+	return nil, fmt.Errorf("a2uischema: no mutually supported catalog found")
 }
 
 func mergeInlineCatalogs(version Version, base *Catalog, inlineCatalogs []v09.CatalogDef) (*Catalog, error) {
-	serverSchema, commonSchema, catalogSchema, err := cloneCatalogSchemas(base)
+	messageSchema, commonSchema, catalogSchema, err := cloneCatalogSchemas(base)
 	if err != nil {
 		return nil, err
 	}
 	merged := &Catalog{
-		Version:              version,
-		Name:                 InlineCatalogName,
-		ServerToClientSchema: serverSchema,
-		CommonTypesSchema:    commonSchema,
-		CatalogSchema:        catalogSchema,
+		Version:           version,
+		Name:              InlineCatalogName,
+		MessageSchema:     messageSchema,
+		CommonTypesSchema: commonSchema,
+		CatalogSchema:     catalogSchema,
 	}
 	for _, inline := range inlineCatalogs {
 		if inline.CatalogID != "" {
@@ -333,7 +380,7 @@ func mergeInlineCatalogs(version Version, base *Catalog, inlineCatalogs []v09.Ca
 		for name, raw := range inline.Components {
 			var decoded any
 			if err := json.Unmarshal(raw, &decoded); err != nil {
-				return nil, fmt.Errorf("schema: decode inline component %q: %w", name, err)
+				return nil, fmt.Errorf("a2uischema: decode inline component %q: %w", name, err)
 			}
 			components[name] = decoded
 		}
@@ -346,7 +393,7 @@ func mergeInlineCatalogs(version Version, base *Catalog, inlineCatalogs []v09.Ca
 			for name, raw := range inline.Theme {
 				var decoded any
 				if err := json.Unmarshal(raw, &decoded); err != nil {
-					return nil, fmt.Errorf("schema: decode inline theme %q: %w", name, err)
+					return nil, fmt.Errorf("a2uischema: decode inline theme %q: %w", name, err)
 				}
 				theme[name] = decoded
 			}
@@ -359,16 +406,16 @@ func mergeInlineCatalogs(version Version, base *Catalog, inlineCatalogs []v09.Ca
 }
 
 func mergeInlineCatalogsV091(version Version, base *Catalog, inlineCatalogs []a2uiv091.CatalogDef) (*Catalog, error) {
-	serverSchema, commonSchema, catalogSchema, err := cloneCatalogSchemas(base)
+	messageSchema, commonSchema, catalogSchema, err := cloneCatalogSchemas(base)
 	if err != nil {
 		return nil, err
 	}
 	merged := &Catalog{
-		Version:              version,
-		Name:                 InlineCatalogName,
-		ServerToClientSchema: serverSchema,
-		CommonTypesSchema:    commonSchema,
-		CatalogSchema:        catalogSchema,
+		Version:           version,
+		Name:              InlineCatalogName,
+		MessageSchema:     messageSchema,
+		CommonTypesSchema: commonSchema,
+		CatalogSchema:     catalogSchema,
 	}
 	for _, inline := range inlineCatalogs {
 		if inline.CatalogID != "" {
@@ -382,7 +429,7 @@ func mergeInlineCatalogsV091(version Version, base *Catalog, inlineCatalogs []a2
 		for name, raw := range inline.Components {
 			var decoded any
 			if err := json.Unmarshal(raw, &decoded); err != nil {
-				return nil, fmt.Errorf("schema: decode inline component %q: %w", name, err)
+				return nil, fmt.Errorf("a2uischema: decode inline component %q: %w", name, err)
 			}
 			components[name] = decoded
 		}
@@ -395,7 +442,7 @@ func mergeInlineCatalogsV091(version Version, base *Catalog, inlineCatalogs []a2
 			for name, raw := range inline.Theme {
 				var decoded any
 				if err := json.Unmarshal(raw, &decoded); err != nil {
-					return nil, fmt.Errorf("schema: decode inline theme %q: %w", name, err)
+					return nil, fmt.Errorf("a2uischema: decode inline theme %q: %w", name, err)
 				}
 				theme[name] = decoded
 			}
@@ -408,16 +455,16 @@ func mergeInlineCatalogsV091(version Version, base *Catalog, inlineCatalogs []a2
 }
 
 func mergeInlineCatalogsV1(version Version, base *Catalog, inlineCatalogs []a2ui.CatalogDef) (*Catalog, error) {
-	serverSchema, commonSchema, catalogSchema, err := cloneCatalogSchemas(base)
+	messageSchema, commonSchema, catalogSchema, err := cloneCatalogSchemas(base)
 	if err != nil {
 		return nil, err
 	}
 	merged := &Catalog{
-		Version:              version,
-		Name:                 InlineCatalogName,
-		ServerToClientSchema: serverSchema,
-		CommonTypesSchema:    commonSchema,
-		CatalogSchema:        catalogSchema,
+		Version:           version,
+		Name:              InlineCatalogName,
+		MessageSchema:     messageSchema,
+		CommonTypesSchema: commonSchema,
+		CatalogSchema:     catalogSchema,
 	}
 	for _, inline := range inlineCatalogs {
 		if inline.CatalogID != "" {
@@ -437,11 +484,11 @@ func mergeInlineCatalogsV1(version Version, base *Catalog, inlineCatalogs []a2ui
 		for name, def := range inline.Functions {
 			data, err := json.Marshal(def)
 			if err != nil {
-				return nil, fmt.Errorf("schema: encode inline function %q: %w", name, err)
+				return nil, fmt.Errorf("a2uischema: encode inline function %q: %w", name, err)
 			}
 			var decoded any
 			if err := json.Unmarshal(data, &decoded); err != nil {
-				return nil, fmt.Errorf("schema: decode inline function %q: %w", name, err)
+				return nil, fmt.Errorf("a2uischema: decode inline function %q: %w", name, err)
 			}
 			functions[name] = decoded
 		}
@@ -462,7 +509,7 @@ func mergeRawMap(schema map[string]any, key, kind string, raw map[string]json.Ra
 	for name, data := range raw {
 		var decoded any
 		if err := json.Unmarshal(data, &decoded); err != nil {
-			return fmt.Errorf("schema: decode inline %s %q: %w", kind, name, err)
+			return fmt.Errorf("a2uischema: decode inline %s %q: %w", kind, name, err)
 		}
 		m[name] = decoded
 	}
@@ -472,11 +519,11 @@ func mergeRawMap(schema map[string]any, key, kind string, raw map[string]json.Ra
 func mergeInlineFunctions(catalogSchema map[string]any, functions any) error {
 	data, err := json.Marshal(functions)
 	if err != nil {
-		return fmt.Errorf("schema: encode inline functions: %w", err)
+		return fmt.Errorf("a2uischema: encode inline functions: %w", err)
 	}
 	var defs []map[string]any
 	if err := json.Unmarshal(data, &defs); err != nil {
-		return fmt.Errorf("schema: decode inline functions: %w", err)
+		return fmt.Errorf("a2uischema: decode inline functions: %w", err)
 	}
 	if len(defs) == 0 {
 		return nil
@@ -486,7 +533,7 @@ func mergeInlineFunctions(catalogSchema map[string]any, functions any) error {
 		for _, def := range defs {
 			name, _ := def["name"].(string)
 			if name == "" {
-				return fmt.Errorf("schema: inline function missing name")
+				return fmt.Errorf("a2uischema: inline function missing name")
 			}
 			functionsMap[name] = def
 		}
@@ -503,7 +550,7 @@ func mergeInlineFunctions(catalogSchema map[string]any, functions any) error {
 func embeddedSchemas(version Version) (map[string]any, map[string]any, error) {
 	switch version {
 	case Version09:
-		serverMap, err := unmarshalJSONMap(serverToClientV09)
+		messageMap, err := unmarshalJSONMap(serverToClientV09)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -511,9 +558,9 @@ func embeddedSchemas(version Version) (map[string]any, map[string]any, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		return serverMap, commonMap, nil
+		return messageMap, commonMap, nil
 	case Version091:
-		serverMap, err := unmarshalJSONMap(serverToClientV091)
+		messageMap, err := unmarshalJSONMap(serverToClientV091)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -521,9 +568,9 @@ func embeddedSchemas(version Version) (map[string]any, map[string]any, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		return serverMap, commonMap, nil
+		return messageMap, commonMap, nil
 	case Version1:
-		serverMap, err := unmarshalJSONMap(agentToRendererV1)
+		messageMap, err := unmarshalJSONMap(agentToRendererV1)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -531,9 +578,9 @@ func embeddedSchemas(version Version) (map[string]any, map[string]any, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		return serverMap, commonMap, nil
+		return messageMap, commonMap, nil
 	default:
-		return nil, nil, fmt.Errorf("schema: unsupported version %q", version)
+		return nil, nil, fmt.Errorf("a2uischema: unsupported version %q", version)
 	}
 }
 

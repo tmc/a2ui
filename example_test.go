@@ -67,3 +67,35 @@ func ExampleIndex() {
 	fmt.Println(string(data))
 	// Output: {"call":"@index","args":{"offset":1}}
 }
+
+func ExampleFunctionResponse() {
+	for _, r := range []a2ui.FunctionResponse{
+		{FunctionCallID: "call-1", Value: 42},
+		{FunctionCallID: "call-2"}, // a nil Value is a null result
+		{FunctionCallID: "call-3", Error: &a2ui.FunctionError{Code: "FAILED", Message: "no network"}},
+	} {
+		data, _ := json.Marshal(r)
+		fmt.Println(string(data))
+	}
+	// Output:
+	// {"functionCallId":"call-1","value":42}
+	// {"functionCallId":"call-2","value":null}
+	// {"functionCallId":"call-3","error":{"code":"FAILED","message":"no network"}}
+}
+
+func ExampleIconNameOrPath() {
+	name := a2ui.IconSearch
+	svg := a2ui.StringLiteral("M0 0h24v24H0z")
+	for _, icon := range []a2ui.IconNameOrPath{
+		{Name: &name},
+		{SVGPath: &svg},
+		{Binding: &a2ui.DataBinding{Path: "/icon"}},
+	} {
+		data, _ := json.Marshal(icon)
+		fmt.Println(string(data))
+	}
+	// Output:
+	// "search"
+	// {"svgPath":"M0 0h24v24H0z"}
+	// {"path":"/icon"}
+}
