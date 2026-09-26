@@ -1,0 +1,7 @@
+commit=edf4b61af785fd854db0b3c479da2a07414eac76
+date=2026-09-25T17:56:37-07:00
+agent=claude-code 2.1.280 (Claude Code)
+model=claude-opus-5-5[1m]
+tty=not a tty pid=31998 iterm=w8t5p3:BBD74F4E-8B93-44C7-81FA-0CF427A0C1EF
+session=dfad41e1-5768-4857-bebc-2c3b044a17fa
+generator=a2uigen d5e40e360602a99c4542a59d9e41e053dad6393b (add-go-sdk-generator)
