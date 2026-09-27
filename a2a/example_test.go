@@ -3,6 +3,7 @@ package a2a_test
 import (
 	"fmt"
 
+	"github.com/tmc/a2ui"
 	"github.com/tmc/a2ui/a2a"
 )
 
@@ -37,7 +38,7 @@ func ExampleA2UIData() {
 
 func ExampleNewAgentExtension() {
 	ext := a2a.NewAgentExtension(a2a.AgentExtensionOptions{
-		SupportedCatalogIDs: []string{"https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"},
+		SupportedCatalogIDs: []string{a2ui.BasicCatalogID},
 	})
 	fmt.Println(ext.URI)
 	fmt.Println(ext.Params[a2a.SupportedCatalogIDsKey])

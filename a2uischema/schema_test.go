@@ -3,6 +3,7 @@ package a2uischema
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,7 +15,7 @@ import (
 	"github.com/tmc/a2ui/a2uistream"
 )
 
-const basicCatalogID = "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+const basicCatalogID = a2ui.BasicCatalogID
 
 func TestSchemaManagerGenerateSystemPrompt(t *testing.T) {
 	manager := mustBasicManager(t)
@@ -312,9 +313,31 @@ func TestValidationErrorMessage(t *testing.T) {
 }
 
 func TestParseAndValidate(t *testing.T) {
-	const bad = `{"version":"v1.0","createSurface":{"surfaceId":"s1","catalogId":"https://example.com/other.json"}}`
-	if _, err := a2uistream.ParseAndValidate(bad, mustBasicValidator(t)); err == nil {
-		t.Fatal("expected validation error, got nil")
+	const create = `{"version":"v1.0","createSurface":{"surfaceId":"s1"}}`
+	update := func(component string) string {
+		return `<a2ui-json>[` + create + `,{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[` + component + `]}}]</a2ui-json>`
+	}
+	tests := []struct {
+		name    string
+		content string
+		want    error // with the basic validator; nil accepts everything
+	}{
+		{"valid", update(`{"id":"root","component":"Text","text":"hi"}`), nil},
+		{"other catalog", `{"version":"v1.0","createSurface":{"surfaceId":"s1","catalogId":"https://example.com/other.json"}}`, ErrInvalidMessage},
+		{"button without child", update(`{"id":"root","component":"Button","action":{"event":{"name":"go"}}}`), ErrInvalidMessage},
+		{"button without action", update(`{"id":"root","component":"Button","child":"t"},{"id":"t","component":"Text","text":"go"}`), ErrInvalidMessage},
+		{"function call returnType", update(`{"id":"root","component":"Text","text":{"call":"formatString","args":{"value":"x"},"returnType":"string"}}`), ErrInvalidMessage},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := a2uistream.ParseAndValidate(tt.content, nil); err != nil {
+				t.Fatalf("ParseAndValidate(nil validator) = %v, want nil", err)
+			}
+			_, err := a2uistream.ParseAndValidate(tt.content, mustBasicValidator(t))
+			if tt.want == nil && err != nil || !errors.Is(err, tt.want) {
+				t.Fatalf("ParseAndValidate() = %v, want %v", err, tt.want)
+			}
+		})
 	}
 }
 
@@ -347,6 +370,52 @@ func TestValidatorComponentRefs(t *testing.T) {
 			err := validator.ValidateJSON([]byte(data))
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("ValidateJSON() = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidatorUnknownFields(t *testing.T) {
+	validator := mustBasicValidator(t)
+	const (
+		create = `{"version":"v1.0","createSurface":{"surfaceId":"s1"}}`
+		text   = `{"id":"root","component":"Text","text":%s}`
+	)
+	update := func(component string) string {
+		return `[` + create + `,{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[` + component + `]}}]`
+	}
+	tests := []struct {
+		name string
+		data string
+		path string // of the unknown field, or "" for none
+	}{
+		{"known", update(fmt.Sprintf(text, `"hi"`)), ""},
+		{"empty dropped fields", `{"version":"v1.0","createSurface":{"surfaceId":"s1","catalogId":"","sendDataModel":false,"components":[],"dataModel":{}}}`, ""},
+		{"null value", update(`{"id":"root","component":"Text","text":"hi","accessibility":{"label":null}}`), ""},
+		{"custom properties", `{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"g","component":"Gauge","anything":1}]}}`, ""},
+		{"data model", `{"version":"v1.0","updateDataModel":{"surfaceId":"s1","path":"/a","value":{"any":{"key":1}}}}`, ""},
+		{"message", `{"version":"v1.0","deleteSurface":{"surfaceId":"s1"},"extra":1}`, "/extra"},
+		{"payload", `{"version":"v1.0","deleteSurface":{"surfaceId":"s1","extra":1}}`, "/deleteSurface/extra"},
+		{"component", update(`{"id":"root","component":"Text","text":"hi","colour":"red"}`), "/1/updateComponents/components/0/colour"},
+		{"field case", `{"version":"v1.0","deleteSurface":{"SurfaceId":"s1"}}`, "/deleteSurface/SurfaceId"},
+		{"binding", update(fmt.Sprintf(text, `{"path":"/a","default":"x"}`)), "/1/updateComponents/components/0/text/default"},
+		{"function call returnType", update(fmt.Sprintf(text, `{"call":"formatString","args":{"value":"x"},"returnType":"string"}`)), "/1/updateComponents/components/0/text/returnType"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := validator.ParseMessages([]byte(tt.data))
+			if tt.path == "" {
+				if err != nil {
+					t.Fatalf("ParseMessages() = %v, want nil", err)
+				}
+				return
+			}
+			var verr *ValidationError
+			if !errors.As(err, &verr) || !errors.Is(err, ErrInvalidMessage) || verr.Path != tt.path {
+				t.Fatalf("ParseMessages() = %v, want ErrInvalidMessage at %s", err, tt.path)
+			}
+			if err := validator.ValidateJSON([]byte(tt.data)); !errors.Is(err, ErrInvalidMessage) {
+				t.Fatalf("ValidateJSON() = %v, want ErrInvalidMessage", err)
 			}
 		})
 	}

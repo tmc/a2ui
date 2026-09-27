@@ -12,7 +12,7 @@ func Example() {
 		Version: a2ui.Version,
 		CreateSurface: &a2ui.CreateSurface{
 			SurfaceID: "demo",
-			CatalogID: "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+			CatalogID: a2ui.BasicCatalogID,
 		},
 	}
 	data, _ := json.Marshal(msg)
@@ -98,4 +98,20 @@ func ExampleIconNameOrPath() {
 	// "search"
 	// {"svgPath":"M0 0h24v24H0z"}
 	// {"path":"/icon"}
+}
+
+// Optional fields such as Placeholder are pointers. Since Go 1.26,
+// new(expr) makes a pointer to a literal without a helper.
+func ExampleTextFieldComponent() {
+	c := a2ui.Component{
+		ID: "name",
+		TextField: &a2ui.TextFieldComponent{
+			Label:       a2ui.StringLiteral("Name"),
+			Placeholder: new(a2ui.StringLiteral("Ann Smith")),
+			Value:       new(a2ui.StringBinding("/user/name")),
+		},
+	}
+	data, _ := json.Marshal(c)
+	fmt.Println(string(data))
+	// Output: {"component":"TextField","id":"name","label":"Name","placeholder":"Ann Smith","value":{"path":"/user/name"}}
 }
