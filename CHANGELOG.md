@@ -17,13 +17,16 @@ Renderer-side helpers and stricter validation.
     indexes are capped at 10000.
   - ResolvePath, plus ResolveValue, ResolveString, ResolveNumber,
     ResolveBoolean and ResolveStringList on DataModel. They resolve
-    Dynamic* values in a list-template scope. Function calls are not
-    evaluated.
+    Dynamic* values in a list-template scope. ResolveString formats
+    numbers as JavaScript's String does (42, 1.5, 1e+21, 1e-7). Function
+    calls are not evaluated.
   - Surface (NewSurface, Apply, Component, Root, Data, CatalogID,
     Metadata, SendDataModel, Deleted) and Surfaces (Apply, Surface, Add).
     They route messages by surface ID. It is an error for a message to
     address the wrong surface, an unknown surface or a deleted surface,
-    or to repeat createSurface.
+    or to repeat createSurface. A failed createSurface leaves the surface
+    unchanged. A deleteSurface through Surfaces also marks a retained
+    *Surface deleted. The zero Surface is usable, with the ID "".
   - The a2uistate types are not safe for concurrent use.
 - a2ui.BasicCatalogID is the basic catalog ID, generated from the
   catalog.
@@ -33,10 +36,13 @@ Renderer-side helpers and stricter validation.
 ### Changed
 
 - a2uischema: ParseMessages, ValidateJSON and ValidateExample reject
-  fields the message types do not define (ErrInvalidMessage, with a
-  JSON Pointer path). This includes misspelled fields and the
-  returnType of function calls, which was removed in 1.x. The a2ui
-  package's json decoding stays lenient.
+  fields the message types do not define, whatever their value
+  (ErrInvalidMessage, with a JSON Pointer path). This includes
+  misspelled fields and the returnType of function calls, which was
+  removed in 1.x. The check looks up each field in the Go type decoded
+  at its position. The data model, function arguments and custom
+  component properties still accept any fields. The a2ui package's
+  json decoding stays lenient.
 - a2uistream: ParseAndValidate calls the validator's
   ValidateJSON([]byte) error if it has one, so that
   a2uischema.Validator also checks streamed responses for unknown
