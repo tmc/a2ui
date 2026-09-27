@@ -4,6 +4,44 @@ Module github.com/tmc/a2ui stays at v0.x until the upstream A2UI v1.0
 specification is marked stable and this API has settled. A future
 protocol 2.0 will be module github.com/tmc/a2ui/v2.
 
+## v0.4.0
+
+Renderer-side helpers and stricter validation.
+
+### Added
+
+- Package a2uistate holds the renderer state of 1.x surfaces:
+  - DataModel: a JSON value addressed by JSON Pointers. Get and Set
+    implement updateDataModel: intermediate objects and arrays are
+    created, nil deletes, "" and "/" address the whole model, and array
+    indexes are capped at 10000.
+  - ResolvePath, plus ResolveValue, ResolveString, ResolveNumber,
+    ResolveBoolean and ResolveStringList on DataModel. They resolve
+    Dynamic* values in a list-template scope. Function calls are not
+    evaluated.
+  - Surface (NewSurface, Apply, Component, Root, Data, CatalogID,
+    Metadata, SendDataModel, Deleted) and Surfaces (Apply, Surface, Add).
+    They route messages by surface ID. It is an error for a message to
+    address the wrong surface, an unknown surface or a deleted surface,
+    or to repeat createSurface.
+  - The a2uistate types are not safe for concurrent use.
+- a2ui.BasicCatalogID is the basic catalog ID, generated from the
+  catalog.
+- An example of new(a2ui.StringLiteral("x")) for optional pointer
+  fields. No pointer-helper functions were added.
+
+### Changed
+
+- a2uischema: ParseMessages, ValidateJSON and ValidateExample reject
+  fields the message types do not define (ErrInvalidMessage, with a
+  JSON Pointer path). This includes misspelled fields and the
+  returnType of function calls, which was removed in 1.x. The a2ui
+  package's json decoding stays lenient.
+- a2uistream: ParseAndValidate calls the validator's
+  ValidateJSON([]byte) error if it has one, so that
+  a2uischema.Validator also checks streamed responses for unknown
+  fields. A nil validator still checks only versions and decoding.
+
 ## v0.3.0
 
 The module now supports A2UI 1.x only. The root package holds the 1.x
