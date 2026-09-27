@@ -4,6 +4,83 @@ Module github.com/tmc/a2ui stays at v0.x until the upstream A2UI v1.0
 specification is marked stable and this API has settled. A future
 protocol 2.0 will be module github.com/tmc/a2ui/v2.
 
+## v0.5.0
+
+Function evaluation and component checks in a2uistate.
+
+### Added
+
+- a2uistate.Evaluator resolves Dynamic* values against a DataModel and
+  evaluates function calls. Its Funcs map names to Func
+  implementations; nil means BasicFunctions. Arguments are resolved
+  recursively, including arrays and nested calls, before the function
+  is called. The catalog ID of a call is ignored.
+  - ResolveValue, ResolveString, ResolveNumber, ResolveBoolean and
+    ResolveStringList return (T, error).
+  - ResolveArgs resolves the arguments of a call without calling it,
+    for renderers that perform actions.
+  - Check evaluates a component's []a2ui.CheckRule and returns the
+    failing a2ui.ValidationResults in order. The message comes from the
+    validation result, then the rule, then "Validation failed". The
+    severity defaults to SeverityError. A condition bound to a missing
+    value fails. Evaluation errors fail the check and are returned
+    joined.
+- a2uistate.BasicFunctions returns a new map with the basic catalog
+  functions and @index: formatString, formatNumber, formatCurrency,
+  formatDate, pluralize, required, regex, length, numeric, email, and,
+  or, not and openUrl. formatString parses ${...} templates as web_core
+  does, including nested calls, relative paths and ${@index(offset: 1)}.
+  Formatting is deterministic, en-US only and stdlib only. The
+  BasicFunctions documentation lists where it differs from web_core:
+  - A fixed table of 22 CLDR currency symbols.
+  - formatDate accepts ISO 8601 only.
+  - regex uses RE2.
+  - Validation results carry no default message.
+  - and, or and not accept validation results.
+  - numeric accepts numeric strings.
+  - Unknown arguments are ignored.
+- Sentinel errors for errors.Is: ErrNoValue, ErrWrongType,
+  ErrUnknownFunction, ErrInvalidArgs and ErrAction. Messages start
+  with "a2uistate:".
+- Actions are never performed during resolution. Evaluating openUrl
+  fails with ErrAction.
+
+### Changed
+
+- The generated function-call helpers follow the catalog schema's
+  required and optional arguments. Required arguments come first, in
+  the order of the schema's required list, then optional arguments by
+  name. Optional plain scalars are pointers, and nil leaves them out:
+  a2ui.Length(v, nil, new(8)). Optional Dynamic* arguments are left out
+  when they are zero. Previously, Length and Numeric always sent
+  "max": 0 and "min": 0, and unset Dynamic* arguments failed to marshal.
+  These signatures changed:
+  - Length(max int, min int, value DynamicString) is now
+    Length(value DynamicString, max *int, min *int).
+  - Numeric(max float64, min float64, value DynamicNumber) is now
+    Numeric(value DynamicNumber, max *float64, min *float64).
+  - FormatNumber(decimals DynamicNumber, grouping DynamicBoolean,
+    value DynamicNumber) is now FormatNumber(value DynamicNumber,
+    decimals DynamicNumber, grouping DynamicBoolean).
+  - FormatCurrency(currency DynamicString, decimals DynamicNumber,
+    grouping DynamicBoolean, value DynamicNumber) is now
+    FormatCurrency(currency DynamicString, value DynamicNumber,
+    decimals DynamicNumber, grouping DynamicBoolean).
+  - Pluralize(few, many, one, other, two DynamicString,
+    value DynamicNumber, zero DynamicString) is now
+    Pluralize(value DynamicNumber, other, few, many, one, two,
+    zero DynamicString).
+  - Regex(pattern string, value DynamicString) is now
+    Regex(value DynamicString, pattern string).
+- The DataModel Resolve methods keep their (T, bool) signatures but now
+  evaluate calls to the basic functions. They previously reported false
+  for any function call. A call that fails, including an unknown
+  function or an action, still reports false. Use an Evaluator for the
+  error or for other functions.
+- ResolveValue resolves the dynamic values inside an array.
+- ResolveString no longer escapes <, > and & when it converts objects
+  and arrays to JSON, which matches JSON.stringify.
+
 ## v0.4.0
 
 Renderer-side helpers and stricter validation.
