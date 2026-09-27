@@ -38,6 +38,12 @@ need A2UI v0.9 should stay on v0.2.0.
   forms: an icon name, {"svgPath": ...} and a {"path": ...} data binding.
 - FunctionResponse has no HasValue field. A response with a nil Error is a
   value response, and a nil Value marshals as "value": null.
+- AgentMessage and RendererMessage marshal an empty Version as
+  a2ui.Version. The VersionString methods are removed.
+- Union types (DynamicString, DynamicValue, Action, IconNameOrPath and
+  the rest) treat JSON null as a no-op when decoding. A zero union fails
+  to marshal, instead of encoding as "". A zero ChildList still encodes
+  as [].
 - a2uistream: ResponsePart.Messages is []a2ui.AgentMessage.
   ParseAndValidate, Parser and Reader decode 1.x only, and
   ParseAndValidate returns an error for content of any other version.
@@ -52,22 +58,33 @@ need A2UI v0.9 should stay on v0.2.0.
     positional arguments.
   - Catalog.ServerToClientSchema is renamed MessageSchema.
   - Error messages start with "a2uischema:".
+  - ValidateMessages requires a root component only for surfaces created
+    in the same messages. Updates to other surfaces may omit root and
+    refer to components sent earlier, as the spec allows.
 - a2a: A2UIMIMEType is "application/a2ui+json", and extension versions
-  default to v1.0.
+  default to v1.0. MarshalA2UIData deep-copies map payloads.
 - a2uiadk: the ToolContext parameter of SendA2UIJSONToClientTool.Run is
   named tc.
 
 ### Added
 
+- a2ui: Component.Custom and CustomComponent{Type, Properties}, for
+  components from custom and inline catalogs.
 - a2uischema:
   - The sentinel errors ErrInvalidMessage, ErrVersionMismatch,
-    ErrUnknownComponent, ErrUnknownFunction, ErrInvalidTree and
-    ErrNotAllowed, for use with errors.Is.
+    ErrUnknownComponent, ErrUnknownFunction, ErrInvalidTree,
+    ErrUnallowedParent and ErrUnallowedChild, for use with errors.Is.
+    The last two match the spec's UNALLOWED_PARENT and UNALLOWED_CHILD
+    codes.
   - ValidationError{Path, Err}, for use with errors.As. Path is a JSON
     pointer to the offending value, such as
     /1/updateComponents/components/0/child.
   - Validation enforces the allowedParents and allowedChildren lists of
     v1.0 catalogs. The basic catalog declares neither.
+  - Custom components are checked against the catalog, and a type the
+    catalog does not define is an ErrUnknownComponent.
+  - Inline catalog components and functions are listed in the merged
+    schema's $defs.anyComponent and $defs.anyFunction.
 - a2uistream: ErrInvalidPayload.
 
 ## v0.2.0
