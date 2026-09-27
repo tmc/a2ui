@@ -15,6 +15,10 @@ const RootID = "root"
 // for a surface that an agent knows to exist; a createSurface message
 // sets its catalog ID and initial state. After a deleteSurface message,
 // it accepts only a createSurface message, which creates it anew.
+//
+// The zero Surface is an empty surface with the ID "", which only
+// messages with an empty surface ID address. Use [NewSurface] to make
+// a surface with another ID.
 type Surface struct {
 	id            string
 	created       bool // a createSurface message has been applied
@@ -28,7 +32,7 @@ type Surface struct {
 
 // NewSurface returns an empty surface with the given ID.
 func NewSurface(id string) *Surface {
-	return &Surface{id: id, components: make(map[string]a2ui.Component)}
+	return &Surface{id: id}
 }
 
 // ID returns the ID of s.
@@ -98,18 +102,18 @@ func (s *Surface) apply(msg a2ui.AgentMessage) error {
 		if s.created && !s.deleted {
 			return fmt.Errorf("a2uistate: surface %q: createSurface for existing surface", s.id)
 		}
-		*s = Surface{
+		next := Surface{
 			id:            s.id,
 			created:       true,
 			catalogID:     c.CatalogID,
 			sendDataModel: c.SendDataModel,
 			metadata:      c.Metadata,
-			components:    make(map[string]a2ui.Component, len(c.Components)),
 		}
-		s.addComponents(c.Components)
-		if err := s.data.Set("", c.DataModel); err != nil {
+		if err := next.data.Set("", c.DataModel); err != nil {
 			return fmt.Errorf("a2uistate: surface %q: createSurface: %w", s.id, err)
 		}
+		next.addComponents(c.Components)
+		*s = next
 		return nil
 	}
 	if s.deleted {
@@ -124,12 +128,15 @@ func (s *Surface) apply(msg a2ui.AgentMessage) error {
 			return fmt.Errorf("a2uistate: surface %q: updateDataModel: %w", s.id, err)
 		}
 	case msg.DeleteSurface != nil:
-		*s = Surface{id: s.id, created: s.created, deleted: true, components: make(map[string]a2ui.Component)}
+		*s = Surface{id: s.id, created: s.created, deleted: true}
 	}
 	return nil
 }
 
 func (s *Surface) addComponents(components []a2ui.Component) {
+	if s.components == nil {
+		s.components = make(map[string]a2ui.Component, len(components))
+	}
 	for _, c := range components {
 		s.components[c.ID] = c
 	}
@@ -174,8 +181,8 @@ func (ss *Surfaces) Add(s *Surface) {
 
 // Apply applies each of msgs to the surface it addresses, as
 // [Surface.Apply] does. A createSurface message adds a surface, and it
-// is an error if the surface exists. A deleteSurface message removes
-// the surface. It is an error for any other message to address a
+// is an error if the surface exists. A deleteSurface message deletes
+// the surface, as [Surface.Apply] does, and removes it from ss. It is an error for any other message to address a
 // surface that does not exist, or not to address a surface at all.
 // Apply stops at the first error; the messages before it stay applied.
 func (ss *Surfaces) Apply(msgs ...a2ui.AgentMessage) error {
@@ -207,6 +214,9 @@ func (ss *Surfaces) apply(msg a2ui.AgentMessage) error {
 	case !ok:
 		return fmt.Errorf("a2uistate: %s for unknown surface %q", kind, id)
 	case msg.DeleteSurface != nil:
+		if err := s.Apply(msg); err != nil {
+			return err
+		}
 		delete(ss.m, id)
 		return nil
 	}
