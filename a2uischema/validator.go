@@ -27,6 +27,10 @@ type Validator struct {
 	// the map allows any parent or child.
 	allowedParents  map[string][]string
 	allowedChildren map[string][]string
+
+	// Schemas of the catalog's components by type, used to find the
+	// references in custom components.
+	componentSchemas map[string]map[string]any
 }
 
 // NewValidator constructs a validator for a catalog.
@@ -35,6 +39,7 @@ func NewValidator(catalog *Catalog) *Validator {
 		catalog:           catalog,
 		allowedComponents: make(map[string]struct{}),
 		allowedFunctions:  make(map[string]struct{}),
+		componentSchemas:  make(map[string]map[string]any),
 	}
 	if catalog == nil {
 		return v
@@ -43,6 +48,7 @@ func NewValidator(catalog *Catalog) *Validator {
 		for name, def := range components {
 			v.allowedComponents[name] = struct{}{}
 			def, _ := def.(map[string]any)
+			v.componentSchemas[name] = def
 			if types, ok := stringList(def["allowedParents"]); ok {
 				if v.allowedParents == nil {
 					v.allowedParents = make(map[string][]string)
@@ -110,7 +116,17 @@ func (v *Validator) ParseMessages(data []byte) ([]a2ui.AgentMessage, error) {
 }
 
 // ValidateMessages validates a batch of A2UI messages.
-// Components may refer to components in earlier messages of the batch.
+//
+// For a surface that the batch creates, the components must form a
+// tree from the component with id "root", and every reference must
+// resolve by the end of the batch; components may refer to components
+// in later messages. A batch may also update a surface created before
+// it. As the A2UI v1.0 protocol specification says, a renderer buffers
+// such updates, so for those surfaces a missing root, references to
+// components outside the batch and components with no parent in the
+// batch are not errors. Duplicate ids and cycles are errors for every
+// surface.
+//
 // If the catalog declares allowedParents or allowedChildren for a
 // component type, ValidateMessages checks each surface's component tree
 // against them.
@@ -124,6 +140,7 @@ func (v *Validator) ValidateMessages(msgs []a2ui.AgentMessage) error {
 	// if they remain unresolved after the last message.
 	surfaceComponents := make(map[string]map[string]bool)
 	pending := make(map[string][]componentRef)
+	created := make(map[string]string) // JSON pointer of createSurface by surface id
 	trees := make(map[string]map[string]placedComponent)
 	place := func(surfaceID, path string, components []a2ui.Component) error {
 		if v.allowedParents == nil && v.allowedChildren == nil {
@@ -136,7 +153,7 @@ func (v *Validator) ValidateMessages(msgs []a2ui.AgentMessage) error {
 		}
 		for j, c := range components {
 			p := path + pointer(j)
-			tree[c.ID] = placedComponent{typ: c.ComponentType(), path: p, refs: at(componentRefs(c), p)}
+			tree[c.ID] = placedComponent{typ: c.ComponentType(), path: p, refs: at(v.componentRefs(c), p)}
 		}
 		return v.validateComposition(surfaceID, tree)
 	}
@@ -150,8 +167,9 @@ func (v *Validator) ValidateMessages(msgs []a2ui.AgentMessage) error {
 			known := make(map[string]bool)
 			surfaceComponents[id] = known
 			pending[id] = nil
+			created[id] = pointer(i, "createSurface")
 			if len(msg.CreateSurface.Components) > 0 {
-				refs, err := v.validateComponents(msg.CreateSurface.Components, nil)
+				refs, err := v.validateComponents(msg.CreateSurface.Components, nil, true)
 				if err != nil {
 					return within(err, pointer(i, "createSurface", "components"), fmt.Sprintf("message[%d]: createSurface", i))
 				}
@@ -167,7 +185,8 @@ func (v *Validator) ValidateMessages(msgs []a2ui.AgentMessage) error {
 		case msg.UpdateComponents != nil:
 			id := msg.UpdateComponents.SurfaceID
 			known := surfaceComponents[id]
-			refs, err := v.validateComponents(msg.UpdateComponents.Components, known)
+			_, isCreated := created[id]
+			refs, err := v.validateComponents(msg.UpdateComponents.Components, known, isCreated)
 			if err != nil {
 				return within(err, pointer(i, "updateComponents", "components"), fmt.Sprintf("message[%d]: updateComponents", i))
 			}
@@ -178,19 +197,27 @@ func (v *Validator) ValidateMessages(msgs []a2ui.AgentMessage) error {
 			for _, component := range msg.UpdateComponents.Components {
 				known[component.ID] = true
 			}
-			refs = at(refs, pointer(i, "updateComponents", "components"))
-			pending[id] = slices.DeleteFunc(append(pending[id], refs...), func(r componentRef) bool { return known[r.to] })
+			if isCreated {
+				refs = at(refs, pointer(i, "updateComponents", "components"))
+				pending[id] = slices.DeleteFunc(append(pending[id], refs...), func(r componentRef) bool { return known[r.to] })
+			}
 			if err := place(id, pointer(i, "updateComponents", "components"), msg.UpdateComponents.Components); err != nil {
 				return err
 			}
 		case msg.DeleteSurface != nil:
 			delete(surfaceComponents, msg.DeleteSurface.SurfaceID)
 			delete(pending, msg.DeleteSurface.SurfaceID)
+			delete(created, msg.DeleteSurface.SurfaceID)
 			delete(trees, msg.DeleteSurface.SurfaceID)
 		case msg.UpdateDataModel != nil:
 			if err := validatePath(msg.UpdateDataModel.Path, true); err != nil {
 				return within(err, pointer(i, "updateDataModel", "path"), fmt.Sprintf("message[%d]: updateDataModel.path", i))
 			}
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(created)) {
+		if known := surfaceComponents[id]; len(known) > 0 && !known["root"] {
+			return invalid(ErrInvalidTree, created[id], fmt.Sprintf("surface %q has no component with id %q", id, "root"))
 		}
 	}
 	for _, id := range slices.Sorted(maps.Keys(pending)) {
@@ -241,7 +268,7 @@ const surfaceType = "Surface"
 func (v *Validator) validateComposition(surfaceID string, tree map[string]placedComponent) error {
 	if root, ok := tree["root"]; ok {
 		if allowed, ok := v.allowedParents[root.typ]; ok && !slices.Contains(allowed, surfaceType) {
-			return invalid(ErrNotAllowed, root.path, fmt.Sprintf("surface %q: component %q (%s) is not allowed at the surface root; allowedParents is %v", surfaceID, "root", root.typ, allowed))
+			return invalid(ErrUnallowedParent, root.path, fmt.Sprintf("surface %q: component %q (%s) is not allowed at the surface root; allowedParents is %v", surfaceID, "root", root.typ, allowed))
 		}
 	}
 	for _, id := range slices.Sorted(maps.Keys(tree)) {
@@ -252,10 +279,10 @@ func (v *Validator) validateComposition(surfaceID string, tree map[string]placed
 				continue
 			}
 			if allowed, ok := v.allowedParents[child.typ]; ok && !slices.Contains(allowed, parent.typ) {
-				return invalid(ErrNotAllowed, ref.path, fmt.Sprintf("surface %q: component %q (%s) is not allowed in component %q (%s); allowedParents is %v", surfaceID, ref.to, child.typ, id, parent.typ, allowed))
+				return invalid(ErrUnallowedParent, ref.path, fmt.Sprintf("surface %q: component %q (%s) is not allowed in component %q (%s); allowedParents is %v", surfaceID, ref.to, child.typ, id, parent.typ, allowed))
 			}
 			if allowed, ok := v.allowedChildren[parent.typ]; ok && !slices.Contains(allowed, child.typ) {
-				return invalid(ErrNotAllowed, ref.path, fmt.Sprintf("surface %q: component %q (%s) does not allow child %q (%s); allowedChildren is %v", surfaceID, id, parent.typ, ref.to, child.typ, allowed))
+				return invalid(ErrUnallowedChild, ref.path, fmt.Sprintf("surface %q: component %q (%s) does not allow child %q (%s); allowedChildren is %v", surfaceID, id, parent.typ, ref.to, child.typ, allowed))
 			}
 		}
 	}
@@ -320,8 +347,10 @@ func (v *Validator) validateMessage(msg a2ui.AgentMessage) error {
 
 // validateComponents validates components and returns the references
 // to components that are neither in components nor in known.
+// If created is set, the surface was created in the batch being
+// validated, and components with no parent are reported as orphans.
 // Error and reference paths are relative to the components array.
-func (v *Validator) validateComponents(components []a2ui.Component, known map[string]bool) ([]componentRef, error) {
+func (v *Validator) validateComponents(components []a2ui.Component, known map[string]bool, created bool) ([]componentRef, error) {
 	ids := make(map[string]int, len(components))
 	for i, component := range components {
 		if err := v.validateComponent(component); err != nil {
@@ -336,7 +365,7 @@ func (v *Validator) validateComponents(components []a2ui.Component, known map[st
 	graph := make(map[string][]string, len(components))
 	for i, component := range components {
 		graph[component.ID] = nil
-		for _, ref := range componentRefs(component) {
+		for _, ref := range v.componentRefs(component) {
 			if _, ok := ids[ref.to]; ok {
 				graph[component.ID] = append(graph[component.ID], ref.to)
 				continue
@@ -349,13 +378,12 @@ func (v *Validator) validateComponents(components []a2ui.Component, known map[st
 			unknown = append(unknown, ref)
 		}
 	}
-	if _, ok := ids["root"]; !ok && len(known) == 0 {
-		return nil, invalid(ErrInvalidTree, "", fmt.Sprintf("components must include id %q", "root"))
+	root := ""
+	if _, ok := ids["root"]; ok && created {
+		root = "root"
 	}
-	if _, ok := ids["root"]; ok {
-		if err := validateTopology(graph, "root", ids); err != nil {
-			return nil, err
-		}
+	if err := validateTopology(graph, root, ids); err != nil {
+		return nil, err
 	}
 	return unknown, nil
 }
@@ -783,18 +811,18 @@ func validateFunctionResponse(response a2ui.FunctionResponse) error {
 
 // componentRefs returns the references from component to other
 // components, with paths relative to the component.
-func componentRefs(component a2ui.Component) []componentRef {
+func (v *Validator) componentRefs(component a2ui.Component) []componentRef {
 	switch {
 	case component.Button != nil:
 		return []componentRef{{to: component.Button.Child, path: "/child"}}
 	case component.Card != nil:
 		return []componentRef{{to: component.Card.Child, path: "/child"}}
 	case component.Column != nil:
-		return childListRefs(component.Column.Children)
+		return childListRefs(component.Column.Children, "/children")
 	case component.List != nil:
-		return childListRefs(component.List.Children)
+		return childListRefs(component.List.Children, "/children")
 	case component.Row != nil:
-		return childListRefs(component.Row.Children)
+		return childListRefs(component.Row.Children, "/children")
 	case component.Modal != nil:
 		return []componentRef{
 			{to: component.Modal.Trigger, path: "/trigger"},
@@ -806,18 +834,77 @@ func componentRefs(component a2ui.Component) []componentRef {
 			refs = append(refs, componentRef{to: tab.Child, path: pointer("tabs", i, "child")})
 		}
 		return refs
+	case component.Custom != nil:
+		var refs []componentRef
+		for _, name := range slices.Sorted(maps.Keys(component.Custom.Properties)) {
+			refs = schemaRefs(refs, v.componentSchemas[component.Custom.Type], name, component.Custom.Properties[name], pointer(name))
+		}
+		return refs
 	default:
 		return nil
 	}
 }
 
-func childListRefs(children a2ui.ChildList) []componentRef {
+// schemaRefs appends to refs the references to components in value,
+// the property name of an object with the given schema, found by
+// walking value alongside its schema. A property whose schema refers to the common types Child or
+// ComponentId holds a reference; one that refers to ChildList holds a
+// list of references or a template.
+func schemaRefs(refs []componentRef, schema map[string]any, name string, value json.RawMessage, path string) []componentRef {
+	props, _ := schema["properties"].(map[string]any)
+	prop, _ := props[name].(map[string]any)
+	if prop == nil {
+		// Look in allOf, as in {"allOf": [{"$ref": ...}, {"properties": ...}]}.
+		all, _ := schema["allOf"].([]any)
+		for _, sub := range all {
+			if sub, ok := sub.(map[string]any); ok {
+				refs = schemaRefs(refs, sub, name, value, path)
+			}
+		}
+		return refs
+	}
+	ref, _ := prop["$ref"].(string)
+	switch {
+	case strings.HasSuffix(ref, "$defs/Child"), strings.HasSuffix(ref, "$defs/ComponentId"):
+		var id string
+		if json.Unmarshal(value, &id) == nil {
+			refs = append(refs, componentRef{to: id, path: path})
+		}
+	case strings.HasSuffix(ref, "$defs/ChildList"):
+		var children a2ui.ChildList
+		if json.Unmarshal(value, &children) == nil {
+			refs = append(refs, childListRefs(children, path)...)
+		}
+	case prop["items"] != nil:
+		items, _ := prop["items"].(map[string]any)
+		var list []json.RawMessage
+		if json.Unmarshal(value, &list) != nil {
+			break
+		}
+		wrap := map[string]any{"properties": map[string]any{"item": items}}
+		for i, item := range list {
+			refs = schemaRefs(refs, wrap, "item", item, path+pointer(i))
+		}
+	case prop["properties"] != nil:
+		var obj map[string]json.RawMessage
+		if json.Unmarshal(value, &obj) != nil {
+			break
+		}
+		for _, name := range slices.Sorted(maps.Keys(obj)) {
+			refs = schemaRefs(refs, prop, name, obj[name], path+pointer(name))
+		}
+	}
+	return refs
+}
+
+// childListRefs returns the references in children, which is at path.
+func childListRefs(children a2ui.ChildList, path string) []componentRef {
 	if children.Template != nil {
-		return []componentRef{{to: children.Template.ComponentID, path: "/children/componentId"}}
+		return []componentRef{{to: children.Template.ComponentID, path: path + "/componentId"}}
 	}
 	refs := make([]componentRef, 0, len(children.IDs))
 	for i, id := range children.IDs {
-		refs = append(refs, componentRef{to: id, path: pointer("children", i)})
+		refs = append(refs, componentRef{to: id, path: path + pointer(i)})
 	}
 	return refs
 }
@@ -864,9 +951,10 @@ func (v *Validator) ValidateExample(data []byte) error {
 	return v.ValidateJSON(example.Messages)
 }
 
-// validateTopology checks that the components in graph form a tree
-// from root. Ids maps component ids to their index in the components
-// array, to which error paths are relative.
+// validateTopology checks that the components in graph have no cycles
+// and, if root is not empty, that they form a tree from root.
+// Ids maps component ids to their index in the components array, to
+// which error paths are relative.
 func validateTopology(graph map[string][]string, root string, ids map[string]int) error {
 	seen := make(map[string]bool, len(graph))
 	stack := make(map[string]bool, len(graph))
@@ -886,6 +974,14 @@ func validateTopology(graph map[string][]string, root string, ids map[string]int
 			}
 		}
 		delete(stack, node)
+		return nil
+	}
+	if root == "" {
+		for _, id := range slices.SortedFunc(maps.Keys(ids), func(a, b string) int { return ids[a] - ids[b] }) {
+			if err := visit(id); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	if err := visit(root); err != nil {
