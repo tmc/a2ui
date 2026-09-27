@@ -53,8 +53,9 @@ Function evaluation and component checks in a2uistate.
 
 ### Changed
 
-- The generated function-call helpers follow the catalog schema. Their
-  parameters are in the order of the schema's args.properties.
+- The generated function-call helpers follow the catalog schema.
+  Required parameters come first, then optional ones, each in the order
+  of the schema's args.properties.
   Optional plain scalars are pointers, and nil leaves them out, as in
   a2ui.Length(v, new(8), nil). Optional Dynamic* arguments are left out
   when they are zero. Required arguments are always sent. Previously,
@@ -67,8 +68,8 @@ Function evaluation and component checks in a2uistate.
     Numeric(value DynamicNumber, min *float64, max *float64).
   - Pluralize(few, many, one, other, two DynamicString,
     value DynamicNumber, zero DynamicString) is now
-    Pluralize(value DynamicNumber, zero, one, two, few, many,
-    other DynamicString).
+    Pluralize(value DynamicNumber, other, zero, one, two, few,
+    many DynamicString).
   - FormatCurrency(currency DynamicString, decimals DynamicNumber,
     grouping DynamicBoolean, value DynamicNumber) is now
     FormatCurrency(value DynamicNumber, currency DynamicString,
