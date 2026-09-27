@@ -12,9 +12,11 @@ Function evaluation and component checks in a2uistate.
 
 - a2uistate.Evaluator resolves Dynamic* values against a DataModel and
   evaluates function calls. Its Funcs map names to Func
-  implementations; nil means BasicFunctions. Arguments are resolved
-  recursively, including arrays and nested calls, before the function
-  is called. The catalog ID of a call is ignored.
+  implementations; nil means BasicFunctions. A non-nil map replaces the
+  basic functions entirely, so extend the map that BasicFunctions
+  returns. Arguments are resolved recursively, including arrays and
+  nested calls, before the function is called. The catalog ID of a
+  call is ignored.
   - ResolveValue, ResolveString, ResolveNumber, ResolveBoolean and
     ResolveStringList return (T, error).
   - ResolveArgs resolves the arguments of a call without calling it,
@@ -33,12 +35,16 @@ Function evaluation and component checks in a2uistate.
   Formatting is deterministic, en-US only and stdlib only. The
   BasicFunctions documentation lists where it differs from web_core:
   - A fixed table of 22 CLDR currency symbols.
-  - formatDate accepts ISO 8601 only.
+  - formatDate accepts ISO 8601 only. It reads its pattern in runs of
+    the same letter, as Unicode TR35 does, so EEE is "Mon" (web_core
+    gives "MonMonMon"). Letters that are not fields, such as YYYY, are
+    copied as they are.
   - regex uses RE2.
   - Validation results carry no default message.
   - and, or and not accept validation results.
   - numeric accepts numeric strings.
   - Unknown arguments are ignored.
+- formatCurrency reports an empty currency as ErrInvalidArgs.
 - Sentinel errors for errors.Is: ErrNoValue, ErrWrongType,
   ErrUnknownFunction, ErrInvalidArgs and ErrAction. Messages start
   with "a2uistate:".
@@ -47,36 +53,40 @@ Function evaluation and component checks in a2uistate.
 
 ### Changed
 
-- The generated function-call helpers follow the catalog schema's
-  required and optional arguments. Required arguments come first, in
-  the order of the schema's required list, then optional arguments by
-  name. Optional plain scalars are pointers, and nil leaves them out:
-  a2ui.Length(v, nil, new(8)). Optional Dynamic* arguments are left out
-  when they are zero. Previously, Length and Numeric always sent
-  "max": 0 and "min": 0, and unset Dynamic* arguments failed to marshal.
-  These signatures changed:
+- The generated function-call helpers follow the catalog schema. Their
+  parameters are in the order of the schema's args.properties.
+  Optional plain scalars are pointers, and nil leaves them out, as in
+  a2ui.Length(v, new(8), nil). Optional Dynamic* arguments are left out
+  when they are zero. Required arguments are always sent. Previously,
+  the parameters were in alphabetical order, Length and Numeric always
+  sent "min": 0 and "max": 0, and unset Dynamic* arguments failed to
+  marshal. These signatures changed:
   - Length(max int, min int, value DynamicString) is now
-    Length(value DynamicString, max *int, min *int).
+    Length(value DynamicString, min *int, max *int).
   - Numeric(max float64, min float64, value DynamicNumber) is now
-    Numeric(value DynamicNumber, max *float64, min *float64).
+    Numeric(value DynamicNumber, min *float64, max *float64).
+  - Pluralize(few, many, one, other, two DynamicString,
+    value DynamicNumber, zero DynamicString) is now
+    Pluralize(value DynamicNumber, zero, one, two, few, many,
+    other DynamicString).
+  - FormatCurrency(currency DynamicString, decimals DynamicNumber,
+    grouping DynamicBoolean, value DynamicNumber) is now
+    FormatCurrency(value DynamicNumber, currency DynamicString,
+    decimals DynamicNumber, grouping DynamicBoolean).
   - FormatNumber(decimals DynamicNumber, grouping DynamicBoolean,
     value DynamicNumber) is now FormatNumber(value DynamicNumber,
     decimals DynamicNumber, grouping DynamicBoolean).
-  - FormatCurrency(currency DynamicString, decimals DynamicNumber,
-    grouping DynamicBoolean, value DynamicNumber) is now
-    FormatCurrency(currency DynamicString, value DynamicNumber,
-    decimals DynamicNumber, grouping DynamicBoolean).
-  - Pluralize(few, many, one, other, two DynamicString,
-    value DynamicNumber, zero DynamicString) is now
-    Pluralize(value DynamicNumber, other, few, many, one, two,
-    zero DynamicString).
+  - FormatDate(format DynamicString, value DynamicValue) is now
+    FormatDate(value DynamicValue, format DynamicString).
   - Regex(pattern string, value DynamicString) is now
     Regex(value DynamicString, pattern string).
+  And, Email, FormatString, Not, OpenURL, Or and Required are unchanged.
 - The DataModel Resolve methods keep their (T, bool) signatures but now
-  evaluate calls to the basic functions. They previously reported false
-  for any function call. A call that fails, including an unknown
-  function or an action, still reports false. Use an Evaluator for the
-  error or for other functions.
+  evaluate calls to the basic functions, and only those. They
+  previously reported false for any function call. A call that fails,
+  including an unknown function or an action, still reports false and
+  the error is dropped. Use the Evaluator methods for other functions
+  and for the error.
 - ResolveValue resolves the dynamic values inside an array.
 - ResolveString no longer escapes <, > and & when it converts objects
   and arrays to JSON, which matches JSON.stringify.
