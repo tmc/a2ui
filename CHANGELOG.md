@@ -4,6 +4,77 @@ Module github.com/tmc/a2ui stays at v0.x until the upstream A2UI v1.0
 specification is marked stable and this API has settled. A future
 protocol 2.0 will be module github.com/tmc/a2ui/v2.
 
+## Unreleased
+
+The final A2UI 1.0 specification. The embedded schemas and the
+examples in testdata are copied from
+[a2ui-project/a2ui](https://github.com/a2ui-project/a2ui) at f2c410a,
+which includes the breaking changes of
+[#3726](https://github.com/a2ui-project/a2ui/pull/3726) and
+[#4044](https://github.com/a2ui-project/a2ui/pull/4044).
+
+### Changed
+
+- Version is "1.0", not "v1.0". Messages encode "version": "1.0".
+  a2uischema reports "v1.0" as an ErrVersionMismatch, and a2uistream
+  reports it as an ErrInvalidPayload, as for any other version. Early
+  1.0 drafts also differ in the keys below, so accepting their version
+  would not decode their payloads.
+- RendererCapabilities and AgentCapabilities are keyed by "1.0", not
+  "v1.0". The A2A extension URI is unchanged.
+- DataBinding is encoded as {"@path": ...} and FunctionCall as
+  {"@call": ..., "args": ..., "catalogId": ...}. Index returns
+  {"@call": "@index", ...}, and IconNameOrPath binds an icon name with
+  {"@path": ...}. The bare "path" and "call" keys are no longer
+  directives. In a DynamicString, DynamicNumber, DynamicBoolean,
+  DynamicStringList or DynamicValidationResult, an object with them is
+  an error, and in a DynamicValue it is a plain object. ChildTemplate
+  and UpdateDataModel keep their "path".
+- The component envelope is encoded with the keys "@catalogId",
+  "@accessibility", "@metadata" and "@checks". "id", "component" and
+  "weight" are unchanged. A catalog may now declare component properties
+  named "catalogId", "accessibility", "metadata" or "checks".
+  - Decoding a component of a type that this package defines also
+    accepts the bare keys of early drafts, as the specification asks
+    during the transition, and reports an error for a component with
+    both the bare and the "@" key. Encoding uses only the "@" keys.
+  - The bare keys of a custom component are left in its Properties.
+    a2uischema.Validator.ParseMessages moves them to the envelope if
+    the component's schema in the catalog does not declare them, and
+    reports a component that also has the "@" key.
+  - CustomComponent.MarshalJSON rejects properties whose names start
+    with a single "@".
+- TextFieldComponent.Value is a DynamicString, not a *DynamicString,
+  because the basic catalog now requires it. a2uibuild.TextField(id,
+  label) is now TextField(id, label, value), and a2uischema reports a
+  TextField with no value.
+- A DynamicValue object with a key that starts with a single "@" and
+  is not "@path" or "@call" fails to decode and to encode. The
+  specification reserves such keys; a literal leading "@" is escaped by
+  doubling it, so "@@type" stands for "@type".
+- a2uischema reports such keys in dynamic objects at any depth, in
+  function arguments, arrays, objects and event contexts, as an
+  ErrInvalidMessage. Error paths use the "@" keys, as in
+  /text/@path and /@checks/0/condition.
+- a2uistate: an Evaluator reads "@path" and "@call", unescapes the keys
+  of plain objects, and reports other keys that start with a single "@"
+  as ErrReservedKey. An object with a bare "path" key is a plain
+  object, so the special case for child templates is gone. formatString
+  expressions parse to the same "@" forms.
+
+### Added
+
+- DynamicValue.Object and ValueObject, for the plain object form of a
+  DynamicValue. Like Array, Object holds its contents as on the wire,
+  with escaped keys and nested dynamic values.
+- IsReservedKey, EscapeKey and UnescapeKey.
+- CallRendererFunction.SurfaceID, the optional surface whose data
+  model the call is evaluated against.
+- a2uistate.ErrReservedKey.
+- a2uischema validates the properties of custom components that their
+  catalog schema declares as DynamicValue, DynamicString,
+  DynamicNumber, DynamicBoolean or DynamicStringList.
+
 ## v0.5.0
 
 Function evaluation and component checks in a2uistate.

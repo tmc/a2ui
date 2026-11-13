@@ -101,6 +101,14 @@ func stringList(x any) ([]string, bool) {
 // [a2ui.AgentMessage] does not define, ParseMessages reports such a
 // field as an [ErrInvalidMessage], as the schemas do. An example is the
 // returnType of a function call, which A2UI 1.x removed.
+//
+// Like decoding, ParseMessages accepts the bare component envelope keys
+// of early A2UI 1.0 drafts ("catalogId", "accessibility", "metadata"
+// and "checks") in place of the "@" keys, as described for
+// [a2ui.Component]. For a custom component, it does so for a key that
+// the component's schema in the catalog does not declare as a property,
+// moving the value from the component's properties to its envelope. A
+// component with both the bare and the "@" key is an [ErrInvalidMessage].
 func (v *Validator) ParseMessages(data []byte) ([]a2ui.AgentMessage, error) {
 	data = bytes.TrimSpace(data)
 	if len(data) == 0 {
@@ -121,7 +129,87 @@ func (v *Validator) ParseMessages(data []byte) ([]a2ui.AgentMessage, error) {
 	if err := checkFields(data, msgs); err != nil {
 		return nil, err
 	}
+	for i := range msgs {
+		prefix := pointer(i)
+		if data[0] != '[' {
+			prefix = ""
+		}
+		var (
+			components []a2ui.Component
+			path       string
+		)
+		switch msg := msgs[i]; {
+		case msg.CreateSurface != nil:
+			components, path = msg.CreateSurface.Components, prefix+"/createSurface/components"
+		case msg.UpdateComponents != nil:
+			components, path = msg.UpdateComponents.Components, prefix+"/updateComponents/components"
+		}
+		for j := range components {
+			if err := v.acceptLegacyKeys(&components[j]); err != nil {
+				return nil, within(err, path+pointer(j), fmt.Sprintf("component %q", components[j].ID))
+			}
+		}
+	}
 	return msgs, nil
+}
+
+// acceptLegacyKeys moves the bare envelope keys of early A2UI 1.0
+// drafts from the properties of the custom component c to its
+// envelope, unless the component's schema declares them as properties.
+// The a2ui package does this for the types it defines.
+func (v *Validator) acceptLegacyKeys(c *a2ui.Component) error {
+	custom := c.Custom
+	if custom == nil {
+		return nil
+	}
+	schema := v.componentSchemas[custom.Type]
+	for _, f := range []struct {
+		key   string
+		set   bool
+		value any
+	}{
+		{"catalogId", c.CatalogID != "", &c.CatalogID},
+		{"accessibility", c.Accessibility != nil, &c.Accessibility},
+		{"metadata", c.Metadata != nil, &c.Metadata},
+		{"checks", c.Checks != nil, &c.Checks},
+	} {
+		raw, ok := custom.Properties[f.key]
+		if !ok {
+			continue
+		}
+		if _, declared := propertySchema(schema, f.key); declared {
+			continue
+		}
+		if f.set {
+			return invalid(ErrInvalidMessage, pointer(f.key), fmt.Sprintf("component has both %q and %q", "@"+f.key, f.key))
+		}
+		if err := json.Unmarshal(raw, f.value); err != nil {
+			return within(err, pointer(f.key), f.key)
+		}
+		delete(custom.Properties, f.key)
+	}
+	return nil
+}
+
+// propertySchema returns the schema of the property name of an object
+// with the given schema, looking in allOf as [schemaRefs] does, and
+// reports whether the schema declares the property.
+func propertySchema(schema map[string]any, name string) (map[string]any, bool) {
+	if props, ok := schema["properties"].(map[string]any); ok {
+		if prop, ok := props[name]; ok {
+			prop, _ := prop.(map[string]any)
+			return prop, true
+		}
+	}
+	all, _ := schema["allOf"].([]any)
+	for _, sub := range all {
+		if sub, ok := sub.(map[string]any); ok {
+			if prop, ok := propertySchema(sub, name); ok {
+				return prop, true
+			}
+		}
+	}
+	return nil, false
 }
 
 // ValidateMessages validates a batch of A2UI messages.
@@ -414,28 +502,28 @@ func (v *Validator) validateComponent(component a2ui.Component) error {
 	}
 	for i, check := range component.Checks {
 		if err := v.validateDynamicValidationResult(check.Condition, 0); err != nil {
-			return within(err, pointer("checks", i, "condition"), "check condition")
+			return within(err, pointer("@checks", i, "condition"), "check condition")
 		}
 	}
 	if a := component.Accessibility; a != nil {
 		if a.Label != nil {
 			if err := v.validateDynamicString(*a.Label, 0); err != nil {
-				return within(err, "/accessibility/label", "accessibility.label")
+				return within(err, "/@accessibility/label", "@accessibility.label")
 			}
 		}
 		if a.Description != nil {
 			if err := v.validateDynamicString(*a.Description, 0); err != nil {
-				return within(err, "/accessibility/description", "accessibility.description")
+				return within(err, "/@accessibility/description", "@accessibility.description")
 			}
 		}
 		switch a.Live {
 		case "", a2ui.AccessibleLiveOff, a2ui.AccessibleLivePolite, a2ui.AccessibleLiveAssertive:
 		default:
-			return invalid(ErrInvalidMessage, "/accessibility/live", fmt.Sprintf("accessibility.live = %q is not allowed", a.Live))
+			return invalid(ErrInvalidMessage, "/@accessibility/live", fmt.Sprintf("@accessibility.live = %q is not allowed", a.Live))
 		}
 		if a.Hidden != nil {
 			if err := v.validateDynamicBoolean(*a.Hidden, 0); err != nil {
-				return within(err, "/accessibility/hidden", "accessibility.hidden")
+				return within(err, "/@accessibility/hidden", "@accessibility.hidden")
 			}
 		}
 	}
@@ -494,10 +582,8 @@ func (v *Validator) validateComponent(component a2ui.Component) error {
 		if err := v.validateDynamicString(c.Label, 0); err != nil {
 			return within(err, "/label", "textField.label")
 		}
-		if c.Value != nil {
-			if err := v.validateDynamicString(*c.Value, 0); err != nil {
-				return within(err, "/value", "textField.value")
-			}
+		if err := v.validateDynamicString(c.Value, 0); err != nil {
+			return within(err, "/value", "textField.value")
 		}
 		if c.Placeholder != nil {
 			if err := v.validateDynamicString(*c.Placeholder, 0); err != nil {
@@ -541,6 +627,8 @@ func (v *Validator) validateComponent(component a2ui.Component) error {
 				return within(err, "/label", "slider.label")
 			}
 		}
+	case component.Custom != nil:
+		return v.validateCustomComponent(*component.Custom)
 	case component.DateTimeInput != nil:
 		c := component.DateTimeInput
 		if err := v.validateDynamicString(c.Value, 0); err != nil {
@@ -559,6 +647,51 @@ func (v *Validator) validateComponent(component a2ui.Component) error {
 					return within(err, pointer(f.name), "dateTimeInput."+f.name)
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// validateCustomComponent validates the properties of a custom
+// component that its schema in the catalog declares as dynamic values
+// of the common types, such as DynamicValue.
+func (v *Validator) validateCustomComponent(component a2ui.CustomComponent) error {
+	schema := v.componentSchemas[component.Type]
+	for _, name := range slices.Sorted(maps.Keys(component.Properties)) {
+		prop, _ := propertySchema(schema, name)
+		ref, _ := prop["$ref"].(string)
+		_, def, _ := strings.Cut(ref, "$defs/")
+		raw := component.Properties[name]
+		var err error
+		switch def {
+		case "DynamicValue":
+			var d a2ui.DynamicValue
+			if err = json.Unmarshal(raw, &d); err == nil {
+				err = v.validateDynamicValue(d, 0)
+			}
+		case "DynamicString":
+			var d a2ui.DynamicString
+			if err = json.Unmarshal(raw, &d); err == nil {
+				err = v.validateDynamicString(d, 0)
+			}
+		case "DynamicNumber":
+			var d a2ui.DynamicNumber
+			if err = json.Unmarshal(raw, &d); err == nil {
+				err = v.validateDynamicNumber(d, 0)
+			}
+		case "DynamicBoolean":
+			var d a2ui.DynamicBoolean
+			if err = json.Unmarshal(raw, &d); err == nil {
+				err = v.validateDynamicBoolean(d, 0)
+			}
+		case "DynamicStringList":
+			var d a2ui.DynamicStringList
+			if err = json.Unmarshal(raw, &d); err == nil {
+				err = v.validateDynamicStringList(d, 0)
+			}
+		}
+		if err != nil {
+			return within(err, pointer(name), name)
 		}
 	}
 	return nil
@@ -655,7 +788,7 @@ func (v *Validator) validateDynamicString(value a2ui.DynamicString, depth int) e
 	case value.Literal != nil:
 		return nil
 	case value.Binding != nil:
-		return within(validatePath(value.Binding.Path, false), "/path", "")
+		return within(validatePath(value.Binding.Path, false), "/@path", "")
 	case value.FunctionCall != nil:
 		return v.validateFunctionCall(*value.FunctionCall, depth+1)
 	default:
@@ -668,7 +801,7 @@ func (v *Validator) validateDynamicNumber(value a2ui.DynamicNumber, depth int) e
 	case value.Literal != nil:
 		return nil
 	case value.Binding != nil:
-		return within(validatePath(value.Binding.Path, false), "/path", "")
+		return within(validatePath(value.Binding.Path, false), "/@path", "")
 	case value.FunctionCall != nil:
 		return v.validateFunctionCall(*value.FunctionCall, depth+1)
 	default:
@@ -681,7 +814,7 @@ func (v *Validator) validateDynamicBoolean(value a2ui.DynamicBoolean, depth int)
 	case value.Literal != nil:
 		return nil
 	case value.Binding != nil:
-		return within(validatePath(value.Binding.Path, false), "/path", "")
+		return within(validatePath(value.Binding.Path, false), "/@path", "")
 	case value.FunctionCall != nil:
 		return v.validateFunctionCall(*value.FunctionCall, depth+1)
 	default:
@@ -694,7 +827,7 @@ func (v *Validator) validateDynamicStringList(value a2ui.DynamicStringList, dept
 	case value.Literal != nil:
 		return nil
 	case value.Binding != nil:
-		return within(validatePath(value.Binding.Path, false), "/path", "")
+		return within(validatePath(value.Binding.Path, false), "/@path", "")
 	case value.FunctionCall != nil:
 		return v.validateFunctionCall(*value.FunctionCall, depth+1)
 	default:
@@ -704,10 +837,14 @@ func (v *Validator) validateDynamicStringList(value a2ui.DynamicStringList, dept
 
 func (v *Validator) validateDynamicValue(value a2ui.DynamicValue, depth int) error {
 	switch {
-	case value.String != nil, value.Number != nil, value.Bool != nil, value.Array != nil:
+	case value.String != nil, value.Number != nil, value.Bool != nil:
 		return nil
+	case value.Array != nil:
+		return v.validateDynamicJSON(value.Array, depth+1)
+	case value.Object != nil:
+		return v.validateDynamicJSON(value.Object, depth+1)
 	case value.Binding != nil:
-		return within(validatePath(value.Binding.Path, false), "/path", "")
+		return within(validatePath(value.Binding.Path, false), "/@path", "")
 	case value.FunctionCall != nil:
 		return v.validateFunctionCall(*value.FunctionCall, depth+1)
 	default:
@@ -720,7 +857,7 @@ func (v *Validator) validateDynamicValidationResult(value a2ui.DynamicValidation
 	case value.Binding != nil && value.FunctionCall != nil:
 		return invalid(ErrInvalidMessage, "", "condition must not have both path and call")
 	case value.Binding != nil:
-		return within(validatePath(value.Binding.Path, false), "/path", "")
+		return within(validatePath(value.Binding.Path, false), "/@path", "")
 	case value.FunctionCall != nil:
 		return v.validateFunctionCall(*value.FunctionCall, depth+1)
 	default:
@@ -736,22 +873,27 @@ func (v *Validator) validateFunctionCall(call a2ui.FunctionCall, depth int) erro
 		return invalid(ErrInvalidMessage, "", "function call recursion depth exceeded")
 	}
 	if call.Call == "" {
-		return invalid(ErrInvalidMessage, "/call", "function call name is required")
+		return invalid(ErrInvalidMessage, "/@call", "function call name is required")
 	}
 	if len(v.allowedFunctions) > 0 && call.Call != indexFunction {
 		if _, ok := v.allowedFunctions[call.Call]; !ok {
-			return invalid(ErrUnknownFunction, "/call", fmt.Sprintf("unknown function %q", call.Call))
+			return invalid(ErrUnknownFunction, "/@call", fmt.Sprintf("unknown function %q", call.Call))
 		}
 	}
 	for _, key := range slices.Sorted(maps.Keys(call.Args)) {
-		if err := v.validateFunctionArg(call.Args[key], depth+1); err != nil {
+		if err := v.validateDynamicJSON(call.Args[key], depth+1); err != nil {
 			return within(err, pointer("args", key), fmt.Sprintf("function arg %q", key))
 		}
 	}
 	return nil
 }
 
-func (v *Validator) validateFunctionArg(arg any, depth int) error {
+// validateDynamicJSON validates arg, a dynamic value as on the wire,
+// such as a function argument or an element of an array value. In an
+// object, the key "@path" makes a data binding and "@call" a function
+// call. Any other object is a plain object, which must not have a key
+// reserved by [a2ui.IsReservedKey].
+func (v *Validator) validateDynamicJSON(arg any, depth int) error {
 	switch value := arg.(type) {
 	case nil, string, bool, float64, int:
 		return nil
@@ -759,17 +901,23 @@ func (v *Validator) validateFunctionArg(arg any, depth int) error {
 		return nil
 	case []any:
 		for i, item := range value {
-			if err := v.validateFunctionArg(item, depth+1); err != nil {
+			if err := v.validateDynamicJSON(item, depth+1); err != nil {
 				return within(err, pointer(i), fmt.Sprintf("[%d]", i))
 			}
 		}
 		return nil
 	case map[string]any:
-		if _, ok := value["path"]; ok {
-			path, _ := value["path"].(string)
-			return within(validatePath(path, false), "/path", "")
+		if _, ok := value["@path"]; ok {
+			if _, ok := value["@call"]; ok {
+				return invalid(ErrInvalidMessage, "", "object must not have both @path and @call")
+			}
+			path, ok := value["@path"].(string)
+			if !ok {
+				return invalid(ErrInvalidMessage, "/@path", "@path must be a string")
+			}
+			return within(validatePath(path, false), "/@path", "")
 		}
-		if _, ok := value["call"]; ok {
+		if _, ok := value["@call"]; ok {
 			data, err := json.Marshal(value)
 			if err != nil {
 				return within(err, "", "")
@@ -781,7 +929,10 @@ func (v *Validator) validateFunctionArg(arg any, depth int) error {
 			return v.validateFunctionCall(call, depth+1)
 		}
 		for _, key := range slices.Sorted(maps.Keys(value)) {
-			if err := v.validateFunctionArg(value[key], depth+1); err != nil {
+			if a2ui.IsReservedKey(key) {
+				return invalid(ErrInvalidMessage, pointer(key), fmt.Sprintf("reserved key %q in dynamic object; escape a literal leading @ as @@", key))
+			}
+			if err := v.validateDynamicJSON(value[key], depth+1); err != nil {
 				return within(err, pointer(key), key)
 			}
 		}

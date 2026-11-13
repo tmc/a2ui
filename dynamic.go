@@ -87,12 +87,22 @@ func StringListFunc(call FunctionCall) DynamicStringList {
 }
 
 // DynamicValue represents a value of any type: string, number, boolean, array,
-// data binding, or function call. Exactly one field is non-nil.
+// object, data binding, or function call. Exactly one field is non-nil.
+//
+// Array and Object hold their contents as on the wire, where they are
+// dynamic too: an object in them with an "@path" key is a data binding,
+// one with an "@call" key is a function call, and in any other object a
+// key with a literal leading "@" is escaped by doubling the "@" (see
+// [EscapeKey]). An object with an unescaped key that starts with "@" and
+// is neither "@path" nor "@call" is not a valid dynamic value, so
+// Object must have no such key. An object with "path" or "call" keys is
+// a plain object.
 type DynamicValue struct {
 	String       *string
 	Number       *float64
 	Bool         *bool
 	Array        []any
+	Object       map[string]any
 	Binding      *DataBinding
 	FunctionCall *FunctionCall
 }
@@ -108,6 +118,10 @@ func ValueBool(b bool) DynamicValue { return DynamicValue{Bool: &b} }
 
 // ValueArray creates a DynamicValue from an array.
 func ValueArray(a []any) DynamicValue { return DynamicValue{Array: a} }
+
+// ValueObject creates a DynamicValue from an object. Keys with a
+// literal leading "@" must be escaped with [EscapeKey].
+func ValueObject(m map[string]any) DynamicValue { return DynamicValue{Object: m} }
 
 // ValueBinding creates a DynamicValue from a data model path.
 func ValueBinding(path string) DynamicValue {

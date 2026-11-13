@@ -22,7 +22,7 @@ func (r *recordingValidator) ValidateMessages(msgs []a2ui.AgentMessage) error {
 }
 
 const (
-	v1Content  = `hi <a2ui-json>{"version":"v1.0","deleteSurface":{"surfaceId":"s1"}}</a2ui-json> bye`
+	v1Content  = `hi <a2ui-json>{"version":"1.0","deleteSurface":{"surfaceId":"s1"}}</a2ui-json> bye`
 	v09Content = `hi <a2ui-json>{"version":"v0.9","deleteSurface":{"surfaceId":"s1"}}</a2ui-json> bye`
 )
 
@@ -47,9 +47,11 @@ func TestParseAndValidateRejectsOtherVersions(t *testing.T) {
 	for _, content := range []string{
 		v09Content,
 		`<a2ui-json>{"version":"v0.8","deleteSurface":{"surfaceId":"s1"}}</a2ui-json>`,
+		// The version of early A2UI 1.0 drafts.
+		`<a2ui-json>{"version":"v1.0","deleteSurface":{"surfaceId":"s1"}}</a2ui-json>`,
 		`<a2ui-json>{"deleteSurface":{"surfaceId":"s1"}}</a2ui-json>`,
 		// Decodes as a payload but is not a valid 1.x message.
-		`<a2ui-json>{"version":"v1.0","deleteSurface":{"surfaceId":"s1"},"updateDataModel":{"surfaceId":"s1"}}</a2ui-json>`,
+		`<a2ui-json>{"version":"1.0","deleteSurface":{"surfaceId":"s1"},"updateDataModel":{"surfaceId":"s1"}}</a2ui-json>`,
 	} {
 		if _, err := ParseAndValidate(content, &r); !errors.Is(err, ErrInvalidPayload) {
 			t.Errorf("ParseAndValidate(%s) = %v, want ErrInvalidPayload", content, err)
@@ -115,12 +117,12 @@ func (r *jsonRecordingValidator) ValidateJSON(data []byte) error {
 }
 
 func TestParseAndValidateJSON(t *testing.T) {
-	const content = `<a2ui-json>{"version":"v1.0","deleteSurface":{"surfaceId":"s1","extra":1}}</a2ui-json>`
+	const content = `<a2ui-json>{"version":"1.0","deleteSurface":{"surfaceId":"s1","extra":1}}</a2ui-json>`
 	var r jsonRecordingValidator
 	if _, err := ParseAndValidate(content, &r); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{`[{"deleteSurface":{"extra":1,"surfaceId":"s1"},"version":"v1.0"}]`}
+	want := []string{`[{"deleteSurface":{"extra":1,"surfaceId":"s1"},"version":"1.0"}]`}
 	if len(r.batches) != 0 || !slices.Equal(r.data, want) {
 		t.Fatalf("ValidateMessages got %v, ValidateJSON got %q, want only ValidateJSON with %q", r.batches, r.data, want)
 	}

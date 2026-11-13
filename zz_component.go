@@ -131,7 +131,7 @@ type TextComponent struct {
 type TextFieldComponent struct {
 	Label       DynamicString    `json:"label"`
 	Placeholder *DynamicString   `json:"placeholder,omitempty"`
-	Value       *DynamicString   `json:"value,omitempty"`
+	Value       DynamicString    `json:"value"`
 	Variant     TextFieldVariant `json:"variant,omitempty"`
 }
 

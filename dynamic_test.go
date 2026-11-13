@@ -19,12 +19,12 @@ func TestDynamicString(t *testing.T) {
 		},
 		{
 			name: "binding",
-			json: `{"path":"/foo"}`,
+			json: `{"@path":"/foo"}`,
 			want: StringBinding("/foo"),
 		},
 		{
 			name: "function_call",
-			json: `{"call":"formatString","args":{"value":"hi"}}`,
+			json: `{"@call":"formatString","args":{"value":"hi"}}`,
 			want: StringFunc(FunctionCall{
 				Call: "formatString",
 				Args: map[string]any{"value": "hi"},
@@ -63,12 +63,12 @@ func TestDynamicNumber(t *testing.T) {
 		},
 		{
 			name: "binding",
-			json: `{"path":"/count"}`,
+			json: `{"@path":"/count"}`,
 			want: NumberBinding("/count"),
 		},
 		{
 			name: "function_call",
-			json: `{"call":"add","args":{"a":1,"b":2}}`,
+			json: `{"@call":"add","args":{"a":1,"b":2}}`,
 			want: NumberFunc(FunctionCall{
 				Call: "add",
 				Args: map[string]any{"a": float64(1), "b": float64(2)},
@@ -107,12 +107,12 @@ func TestDynamicBoolean(t *testing.T) {
 		},
 		{
 			name: "binding",
-			json: `{"path":"/enabled"}`,
+			json: `{"@path":"/enabled"}`,
 			want: BoolBinding("/enabled"),
 		},
 		{
 			name: "function_call",
-			json: `{"call":"required","args":{"value":"x"}}`,
+			json: `{"@call":"required","args":{"value":"x"}}`,
 			want: BoolFunc(FunctionCall{
 				Call: "required",
 				Args: map[string]any{"value": "x"},
@@ -146,12 +146,12 @@ func TestDynamicStringList(t *testing.T) {
 		},
 		{
 			name: "binding",
-			json: `{"path":"/tags"}`,
+			json: `{"@path":"/tags"}`,
 			want: StringListBinding("/tags"),
 		},
 		{
 			name: "function_call",
-			json: `{"call":"split","args":{"sep":","}}`,
+			json: `{"@call":"split","args":{"sep":","}}`,
 			want: StringListFunc(FunctionCall{
 				Call: "split",
 				Args: map[string]any{"sep": ","},
@@ -204,13 +204,35 @@ func TestDynamicValue(t *testing.T) {
 			want: ValueArray([]any{float64(1), "two", true}),
 		},
 		{
+			name: "object",
+			json: `{"a":1,"b":[true]}`,
+			want: ValueObject(map[string]any{"a": float64(1), "b": []any{true}}),
+		},
+		{
+			name: "empty_object",
+			json: `{}`,
+			want: ValueObject(map[string]any{}),
+		},
+		{
+			// Bare path and call keys are plain data in 1.0.
+			name: "object_with_path_and_call",
+			json: `{"call":"audit","path":"/var/log/system.log"}`,
+			want: ValueObject(map[string]any{"path": "/var/log/system.log", "call": "audit"}),
+		},
+		{
+			// Object holds keys as on the wire, escaped.
+			name: "object_with_escaped_keys",
+			json: `{"@@path":"/static/file","@@type":"Resource"}`,
+			want: ValueObject(map[string]any{"@@path": "/static/file", "@@type": "Resource"}),
+		},
+		{
 			name: "binding",
-			json: `{"path":"/data"}`,
+			json: `{"@path":"/data"}`,
 			want: ValueBinding("/data"),
 		},
 		{
 			name: "function_call",
-			json: `{"call":"now","catalogId":"https://example.com/catalog.json"}`,
+			json: `{"@call":"now","catalogId":"https://example.com/catalog.json"}`,
 			want: ValueFunc(FunctionCall{
 				Call:      "now",
 				CatalogID: "https://example.com/catalog.json",
@@ -275,8 +297,71 @@ func TestDynamicRejectsMultipleValues(t *testing.T) {
 
 func TestDynamicRejectsAmbiguousObject(t *testing.T) {
 	var got DynamicString
-	if err := json.Unmarshal([]byte(`{"path":"/name","call":"formatString"}`), &got); err == nil {
+	if err := json.Unmarshal([]byte(`{"@path":"/name","@call":"formatString"}`), &got); err == nil {
 		t.Fatal("expected unmarshal error, got nil")
+	}
+}
+
+func TestDynamicRejectsReservedKeys(t *testing.T) {
+	for _, data := range []string{
+		`{"@if":true,"then":"active"}`,
+		`{"@":"reserved"}`,
+		`{"@metadata":{"extensions":{"x":1}}}`,
+		`{"@checks":[]}`,
+	} {
+		var got DynamicValue
+		if err := json.Unmarshal([]byte(data), &got); err == nil {
+			t.Errorf("Unmarshal(%s) = %+v, want error", data, got)
+		}
+	}
+	if data, err := json.Marshal(ValueObject(map[string]any{"@type": "x"})); err == nil {
+		t.Errorf("Marshal object with @type = %s, want error", data)
+	}
+	if data, err := json.Marshal(ValueObject(map[string]any{EscapeKey("@type"): "x"})); err != nil || string(data) != `{"@@type":"x"}` {
+		t.Errorf("Marshal object with escaped @type = %s, %v, want {\"@@type\":\"x\"}", data, err)
+	}
+}
+
+func TestDynamicRejectsBareDirectives(t *testing.T) {
+	// Only DynamicValue has a plain object form. In the other dynamic
+	// types, an object must be a data binding or a function call, and
+	// the bare "path" and "call" of early drafts are neither.
+	tests := []struct {
+		name string
+		v    any
+		json string
+	}{
+		{"DynamicString path", new(DynamicString), `{"path":"/name"}`},
+		{"DynamicNumber call", new(DynamicNumber), `{"call":"now"}`},
+		{"DynamicBoolean path", new(DynamicBoolean), `{"path":"/ok"}`},
+		{"DynamicStringList call", new(DynamicStringList), `{"call":"split","args":{}}`},
+		{"DynamicValidationResult path", new(DynamicValidationResult), `{"path":"/ok"}`},
+		{"DynamicValidationResult call", new(DynamicValidationResult), `{"call":"required","args":{"value":"x"}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := json.Unmarshal([]byte(tt.json), tt.v); err == nil {
+				t.Fatalf("Unmarshal(%s) = %+v, want error", tt.json, tt.v)
+			}
+		})
+	}
+}
+
+func TestIndexFunction(t *testing.T) {
+	const want = `{"@call":"@index","args":{"offset":1}}`
+	data, err := json.Marshal(Index(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != want {
+		t.Fatalf("Marshal(Index(1)) = %s, want %s", data, want)
+	}
+	var got DynamicNumber
+	if err := json.Unmarshal([]byte(want), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.FunctionCall == nil || got.FunctionCall.Call != "@index" || got.FunctionCall.Args["offset"] != float64(1) {
+		t.Fatalf("Unmarshal(%s) = %+v, want @index call with offset 1", want, got)
 	}
 }
 
@@ -352,9 +437,9 @@ func TestDynamicRoundTrip(t *testing.T) {
 	}{
 		{"string empty", new(DynamicString), `""`},
 		{"string", new(DynamicString), `"hi"`},
-		{"string binding", new(DynamicString), `{"path":"/a"}`},
+		{"string binding", new(DynamicString), `{"@path":"/a"}`},
 		{"number zero", new(DynamicNumber), `0`},
-		{"number call", new(DynamicNumber), `{"call":"now"}`},
+		{"number call", new(DynamicNumber), `{"@call":"now"}`},
 		{"boolean false", new(DynamicBoolean), `false`},
 		{"string list empty", new(DynamicStringList), `[]`},
 		{"string list", new(DynamicStringList), `["a","b"]`},
@@ -362,8 +447,10 @@ func TestDynamicRoundTrip(t *testing.T) {
 		{"value number", new(DynamicValue), `1.5`},
 		{"value bool", new(DynamicValue), `true`},
 		{"value array", new(DynamicValue), `[1,"a",null]`},
-		{"value binding", new(DynamicValue), `{"path":"/a"}`},
-		{"validation result", new(DynamicValidationResult), `{"path":"/ok"}`},
+		{"value binding", new(DynamicValue), `{"@path":"/a"}`},
+		{"value call", new(DynamicValue), `{"@call":"now","args":{"tz":{"@path":"/tz"}}}`},
+		{"value object", new(DynamicValue), `{"@@path":"/a","path":"/b"}`},
+		{"validation result", new(DynamicValidationResult), `{"@path":"/ok"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

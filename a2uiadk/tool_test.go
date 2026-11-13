@@ -14,8 +14,8 @@ func TestSendA2UIJSONToClientToolRun(t *testing.T) {
 	tc := &ToolContext{}
 	result := tool.Run(map[string]any{
 		A2UIJSONArgName: `[
-			{"version":"v1.0","createSurface":{"surfaceId":"dummy-surface","catalogId":"https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"}},
-			{"version":"v1.0","updateComponents":{"surfaceId":"dummy-surface","components":[{"component":"Text","id":"root","text":"hello"}]}}
+			{"version":"1.0","createSurface":{"surfaceId":"dummy-surface","catalogId":"https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"}},
+			{"version":"1.0","updateComponents":{"surfaceId":"dummy-surface","components":[{"component":"Text","id":"root","text":"hello"}]}}
 		]`,
 	}, tc)
 	if _, ok := result[ToolErrorKey]; ok {

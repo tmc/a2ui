@@ -52,7 +52,7 @@ func TestLoginFormComponents(t *testing.T) {
 		if c.TextField.Label.Literal == nil || *c.TextField.Label.Literal != "Email" {
 			t.Fatalf("label = %+v, want literal Email", c.TextField.Label)
 		}
-		if c.TextField.Value == nil || c.TextField.Value.Binding == nil || c.TextField.Value.Binding.Path != "/email" {
+		if c.TextField.Value.Binding == nil || c.TextField.Value.Binding.Path != "/email" {
 			t.Fatal("value should bind to /email")
 		}
 	})
@@ -170,11 +170,11 @@ func TestComponentRoundTrip(t *testing.T) {
 		},
 		{
 			name: "text_with_binding",
-			json: `{"component":"Text","id":"t2","text":{"path":"/name"}}`,
+			json: `{"component":"Text","id":"t2","text":{"@path":"/name"}}`,
 		},
 		{
 			name: "custom",
-			json: `{"component":"Gauge","id":"g1","catalogId":"https://example.com/catalog.json","value":{"path":"/level"},"max":10,"weight":1}`,
+			json: `{"component":"Gauge","id":"g1","@catalogId":"https://example.com/catalog.json","value":{"@path":"/level"},"max":10,"weight":1}`,
 		},
 		{
 			name: "custom_no_properties",
@@ -202,6 +202,83 @@ func TestComponentCustom(t *testing.T) {
 	}
 	if got := c.ComponentType(); got != "Gauge" {
 		t.Errorf("ComponentType() = %q, want Gauge", got)
+	}
+}
+
+func TestComponentEnvelopeKeys(t *testing.T) {
+	const data = `{"component":"TextField","id":"f","label":"Email","value":{"@path":"/email"},` +
+		`"@catalogId":"cat","@accessibility":{"label":"Email address"},"@metadata":{"extensions":{"com_example":1}},` +
+		`"@checks":[{"condition":{"@call":"required","args":{"value":{"@path":"/email"}}}}]}`
+	var c Component
+	if err := json.Unmarshal([]byte(data), &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.CatalogID != "cat" || c.Accessibility == nil || c.Metadata == nil || len(c.Checks) != 1 {
+		t.Fatalf("envelope = %q, %+v, %+v, %+v", c.CatalogID, c.Accessibility, c.Metadata, c.Checks)
+	}
+	roundTrip(t, c, data)
+}
+
+func TestComponentLegacyEnvelopeKeys(t *testing.T) {
+	// Early 1.0 drafts used bare envelope keys. Decoding accepts them
+	// for the types of this package, and encoding uses the @ keys.
+	const legacy = `{"component":"TextField","id":"f","label":"Email","value":{"@path":"/email"},` +
+		`"catalogId":"cat","accessibility":{"label":"Email address"},"metadata":{"extensions":{"com_example":1}},` +
+		`"checks":[{"condition":{"@call":"required","args":{"value":{"@path":"/email"}}}}]}`
+	const want = `{"component":"TextField","id":"f","label":"Email","value":{"@path":"/email"},` +
+		`"@catalogId":"cat","@accessibility":{"label":"Email address"},"@metadata":{"extensions":{"com_example":1}},` +
+		`"@checks":[{"condition":{"@call":"required","args":{"value":{"@path":"/email"}}}}]}`
+	var c Component
+	if err := json.Unmarshal([]byte(legacy), &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.CatalogID != "cat" || c.Accessibility == nil || c.Metadata == nil || len(c.Checks) != 1 {
+		t.Fatalf("envelope = %q, %+v, %+v, %+v", c.CatalogID, c.Accessibility, c.Metadata, c.Checks)
+	}
+	roundTrip(t, c, want)
+}
+
+func TestComponentRejectsBothEnvelopeKeys(t *testing.T) {
+	for _, extra := range []string{
+		`"catalogId":"a","@catalogId":"b"`,
+		`"accessibility":{},"@accessibility":{}`,
+		`"metadata":{},"@metadata":{}`,
+		`"checks":[],"@checks":[]`,
+	} {
+		data := `{"component":"Text","id":"t","text":"hi",` + extra + `}`
+		var c Component
+		if err := json.Unmarshal([]byte(data), &c); err == nil {
+			t.Errorf("Unmarshal(%s) = nil, want error", data)
+		}
+	}
+}
+
+func TestComponentCustomEnvelopeNames(t *testing.T) {
+	// A custom catalog may declare properties with the bare envelope
+	// names, so decoding leaves them in the properties.
+	const data = `{"component":"Table","id":"t","metadata":{"page":2},"checks":"all",` +
+		`"@metadata":{"extensions":{"com_example":1}}}`
+	var c Component
+	if err := json.Unmarshal([]byte(data), &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.Metadata == nil || c.Metadata.Extensions["com_example"] != float64(1) {
+		t.Errorf("Metadata = %+v, want the @metadata envelope", c.Metadata)
+	}
+	if c.Checks != nil {
+		t.Errorf("Checks = %+v, want nil", c.Checks)
+	}
+	if got := string(c.Custom.Properties["metadata"]); got != `{"page":2}` {
+		t.Errorf("Properties[metadata] = %s, want {\"page\":2}", got)
+	}
+	if got := string(c.Custom.Properties["checks"]); got != `"all"` {
+		t.Errorf("Properties[checks] = %s, want \"all\"", got)
+	}
+	roundTrip(t, c, data)
+
+	c.Custom.Properties["@metadata"] = json.RawMessage(`{}`)
+	if data, err := json.Marshal(c); err == nil {
+		t.Errorf("Marshal with property @metadata = %s, want error", data)
 	}
 }
 

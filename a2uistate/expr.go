@@ -223,7 +223,7 @@ func (sc *scanner) expression(depth int) (any, error) {
 		sc.pos = start
 		return "", nil
 	}
-	return map[string]any{"path": token}, nil
+	return map[string]any{"@path": token}, nil
 }
 
 // call parses the arguments of a call to the function name.
@@ -255,7 +255,7 @@ func (sc *scanner) call(name string, depth int) (any, error) {
 	if !sc.match(')') {
 		return nil, fmt.Errorf("expected ')' after function arguments for %q", name)
 	}
-	return map[string]any{"call": name, "args": args}, nil
+	return map[string]any{"@call": name, "args": args}, nil
 }
 
 // stringLiteral parses a quoted string, with the escapes \n, \t, \r

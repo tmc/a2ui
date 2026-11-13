@@ -1,7 +1,8 @@
 package a2ui
 
-// Version is the A2UI protocol version implemented by this package.
-const Version = "v1.0"
+// Version is the A2UI protocol version implemented by this package,
+// the value of the version field of every message.
+const Version = "1.0"
 
 // AgentMessage is a message sent from the agent to the renderer.
 // Exactly one of the payload fields is non-nil.
@@ -46,7 +47,12 @@ type DeleteSurface struct {
 
 // CallRendererFunction asks the renderer to execute a function on behalf
 // of the agent. CallFunction.CatalogID is required.
+//
+// SurfaceID names the surface whose data model the call is evaluated
+// against. If it is empty, the call is evaluated against an empty data
+// model, independent of any surface.
 type CallRendererFunction struct {
+	SurfaceID      string       `json:"surfaceId,omitempty"`
 	FunctionCallID string       `json:"functionCallId"`
 	CallFunction   FunctionCall `json:"callFunction"`
 }

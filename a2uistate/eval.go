@@ -30,6 +30,12 @@ var (
 	// ErrAction reports a call, evaluated for its value, to a function
 	// that performs an action and returns no value, such as openUrl.
 	ErrAction = errors.New("a2uistate: action has no value")
+
+	// ErrReservedKey reports an object in a dynamic value with a key
+	// that [a2ui.IsReservedKey] reserves, other than "@path" and "@call",
+	// such as "@type" where "@@type" was meant. It corresponds to the
+	// INVALID_RESERVED_KEY error of the protocol.
+	ErrReservedKey = errors.New("a2uistate: reserved key")
 )
 
 // maxEvalDepth bounds the nesting of the dynamic values that an
@@ -70,7 +76,10 @@ type Evaluator struct {
 
 // ResolveValue returns the value of d, resolving data bindings in
 // scope as [ResolvePath] does and evaluating function calls. The
-// dynamic values in an array are resolved too.
+// dynamic values in an array or object are resolved too, and the keys
+// of objects are unescaped with [a2ui.UnescapeKey], so that "@@type"
+// becomes "@type". An object with any other key that starts with a
+// single "@" fails with [ErrReservedKey].
 func (e *Evaluator) ResolveValue(d a2ui.DynamicValue, scope string) (any, error) {
 	v, ok, err := e.eval(d, scope, 0)
 	if err != nil {
@@ -266,9 +275,10 @@ func (e *Evaluator) get(path, scope string) (any, bool) {
 
 // eval resolves the dynamic value v in scope. It reports false if v is
 // unset or bound to a missing value. The value v is either a JSON
-// value, in which an object with a string "path" is a data binding and
-// one with a string "call" is a function call, or a Go value, such as
-// an a2ui.DynamicString, which eval converts to JSON.
+// value, in which an object with an "@path" key is a data binding, one
+// with an "@call" key is a function call, and any other object is a
+// plain object whose keys eval unescapes with [a2ui.UnescapeKey], or a
+// Go value, such as an a2ui.DynamicString, which eval converts to JSON.
 func (e *Evaluator) eval(v any, scope string, depth int) (any, bool, error) {
 	if depth > maxEvalDepth {
 		return nil, false, fmt.Errorf("%w: dynamic values nested more than %d deep", ErrInvalidArgs, maxEvalDepth)
@@ -277,13 +287,19 @@ func (e *Evaluator) eval(v any, scope string, depth int) (any, bool, error) {
 	case nil, string, float64, bool:
 		return v, true, nil
 	case map[string]any:
-		if path, ok := v["path"].(string); ok {
-			if _, ok := v["componentId"]; !ok { // not a child template
-				x, ok := e.get(path, scope)
-				return x, ok, nil
+		if p, ok := v["@path"]; ok {
+			path, ok := p.(string)
+			if !ok {
+				return nil, false, fmt.Errorf("%w: @path is %s, not a string", ErrWrongType, jsonType(p))
 			}
+			x, ok := e.get(path, scope)
+			return x, ok, nil
 		}
-		if name, ok := v["call"].(string); ok {
+		if c, ok := v["@call"]; ok {
+			name, ok := c.(string)
+			if !ok {
+				return nil, false, fmt.Errorf("%w: @call is %s, not a string", ErrWrongType, jsonType(c))
+			}
 			args, ok := v["args"].(map[string]any)
 			if !ok && v["args"] != nil {
 				return nil, false, fmt.Errorf("%w: %s: args is %s, not an object", ErrInvalidArgs, name, jsonType(v["args"]))
@@ -292,12 +308,15 @@ func (e *Evaluator) eval(v any, scope string, depth int) (any, bool, error) {
 		}
 		out := make(map[string]any, len(v))
 		for k, x := range v {
+			if a2ui.IsReservedKey(k) {
+				return nil, false, fmt.Errorf("%w %q", ErrReservedKey, k)
+			}
 			x, ok, err := e.eval(x, scope, depth+1)
 			if err != nil {
 				return nil, false, err
 			}
 			if ok {
-				out[k] = x
+				out[a2ui.UnescapeKey(k)] = x
 			}
 		}
 		return out, true, nil
@@ -365,6 +384,8 @@ func (e *Evaluator) eval(v any, scope string, depth int) (any, bool, error) {
 			return *v.Bool, true, nil
 		case v.Array != nil:
 			return e.eval(v.Array, scope, depth)
+		case v.Object != nil:
+			return e.eval(v.Object, scope, depth)
 		case v.Binding != nil:
 			return e.eval(*v.Binding, scope, depth)
 		case v.FunctionCall != nil:

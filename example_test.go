@@ -17,7 +17,7 @@ func Example() {
 	}
 	data, _ := json.Marshal(msg)
 	fmt.Println(string(data))
-	// Output: {"version":"v1.0","createSurface":{"surfaceId":"demo","catalogId":"https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"}}
+	// Output: {"version":"1.0","createSurface":{"surfaceId":"demo","catalogId":"https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"}}
 }
 
 func ExampleComponent() {
@@ -45,7 +45,7 @@ func ExampleDynamicString() {
 	fmt.Println(string(data))
 	// Output:
 	// "hello"
-	// {"path":"/user/name"}
+	// {"@path":"/user/name"}
 }
 
 func ExampleDynamicNumber() {
@@ -59,13 +59,13 @@ func ExampleDynamicBoolean() {
 	b := a2ui.BoolBinding("/settings/enabled")
 	data, _ := json.Marshal(b)
 	fmt.Println(string(data))
-	// Output: {"path":"/settings/enabled"}
+	// Output: {"@path":"/settings/enabled"}
 }
 
 func ExampleIndex() {
 	data, _ := json.Marshal(a2ui.Index(1))
 	fmt.Println(string(data))
-	// Output: {"call":"@index","args":{"offset":1}}
+	// Output: {"@call":"@index","args":{"offset":1}}
 }
 
 func ExampleFunctionResponse() {
@@ -97,7 +97,7 @@ func ExampleIconNameOrPath() {
 	// Output:
 	// "search"
 	// {"svgPath":"M0 0h24v24H0z"}
-	// {"path":"/icon"}
+	// {"@path":"/icon"}
 }
 
 // Optional fields such as Placeholder are pointers. Since Go 1.26,
@@ -108,12 +108,12 @@ func ExampleTextFieldComponent() {
 		TextField: &a2ui.TextFieldComponent{
 			Label:       a2ui.StringLiteral("Name"),
 			Placeholder: new(a2ui.StringLiteral("Ann Smith")),
-			Value:       new(a2ui.StringBinding("/user/name")),
+			Value:       a2ui.StringBinding("/user/name"),
 		},
 	}
 	data, _ := json.Marshal(c)
 	fmt.Println(string(data))
-	// Output: {"component":"TextField","id":"name","label":"Name","placeholder":"Ann Smith","value":{"path":"/user/name"}}
+	// Output: {"component":"TextField","id":"name","label":"Name","placeholder":"Ann Smith","value":{"@path":"/user/name"}}
 }
 
 func ExampleLength() {
@@ -124,5 +124,5 @@ func ExampleLength() {
 	}
 	data, _ := json.Marshal(check)
 	fmt.Println(string(data))
-	// Output: {"condition":{"call":"length","args":{"min":8,"value":{"path":"/password"}}},"message":"Use at least 8 characters"}
+	// Output: {"condition":{"@call":"length","args":{"min":8,"value":{"@path":"/password"}}},"message":"Use at least 8 characters"}
 }

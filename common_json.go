@@ -116,7 +116,7 @@ func (i *IconNameOrPath) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("a2ui: unmarshal icon name or path: %w", err)
 	}
 	if len(obj) != 1 {
-		return fmt.Errorf("a2ui: icon name object must have exactly one of svgPath or path")
+		return fmt.Errorf("a2ui: icon name object must have exactly one of svgPath or @path")
 	}
 	if raw, ok := obj["svgPath"]; ok {
 		i.SVGPath = new(DynamicString)
@@ -125,9 +125,9 @@ func (i *IconNameOrPath) UnmarshalJSON(data []byte) error {
 		}
 		return nil
 	}
-	raw, ok := obj["path"]
+	raw, ok := obj["@path"]
 	if !ok {
-		return fmt.Errorf("a2ui: icon name object must have exactly one of svgPath or path")
+		return fmt.Errorf("a2ui: icon name object must have exactly one of svgPath or @path")
 	}
 	var path string
 	if err := json.Unmarshal(raw, &path); err != nil {

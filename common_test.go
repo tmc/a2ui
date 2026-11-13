@@ -16,7 +16,7 @@ func TestActionRejectsInvalidStates(t *testing.T) {
 	}
 
 	var decoded Action
-	if err := json.Unmarshal([]byte(`{"event":{"name":"submit"},"functionCall":{"call":"openUrl"}}`), &decoded); err == nil {
+	if err := json.Unmarshal([]byte(`{"event":{"name":"submit"},"functionCall":{"@call":"openUrl"}}`), &decoded); err == nil {
 		t.Fatal("expected unmarshal error, got nil")
 	}
 }
@@ -34,9 +34,9 @@ func TestIconNameOrPathRejectsInvalidStates(t *testing.T) {
 	}
 
 	for _, raw := range []string{
-		`{"path":""}`,
+		`{"@path":""}`,
 		`{}`,
-		`{"svgPath":"M0 0","path":"/icon"}`,
+		`{"svgPath":"M0 0","@path":"/icon"}`,
 		`{"href":"icon.svg"}`,
 		`{"svgPath":42}`,
 	} {
@@ -56,8 +56,8 @@ func TestIconNameOrPathRoundTrip(t *testing.T) {
 	}{
 		{"name", IconNameOrPath{Name: &name}, `"search"`},
 		{"svg_path", IconNameOrPath{SVGPath: ptr(StringLiteral("M0 0h1v1z"))}, `{"svgPath":"M0 0h1v1z"}`},
-		{"svg_path_binding", IconNameOrPath{SVGPath: ptr(StringBinding("/icons/custom"))}, `{"svgPath":{"path":"/icons/custom"}}`},
-		{"binding", IconNameOrPath{Binding: &DataBinding{Path: "/icon"}}, `{"path":"/icon"}`},
+		{"svg_path_binding", IconNameOrPath{SVGPath: ptr(StringBinding("/icons/custom"))}, `{"svgPath":{"@path":"/icons/custom"}}`},
+		{"binding", IconNameOrPath{Binding: &DataBinding{Path: "/icon"}}, `{"@path":"/icon"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -86,5 +86,39 @@ func TestChildListRejectsMultipleRepresentations(t *testing.T) {
 	}
 	if _, err := json.Marshal(children); err == nil {
 		t.Fatal("expected marshal error, got nil")
+	}
+}
+
+func TestReservedKeys(t *testing.T) {
+	tests := []struct {
+		key      string
+		reserved bool
+		escaped  string
+	}{
+		{"@path", true, "@@path"},
+		{"@call", true, "@@call"},
+		{"@", true, "@@"},
+		{"@@path", false, "@@@path"},
+		{"@@", false, "@@@"},
+		{"path", false, "path"},
+		{"a@b", false, "a@b"},
+		{"", false, ""},
+	}
+	for _, tt := range tests {
+		if got := IsReservedKey(tt.key); got != tt.reserved {
+			t.Errorf("IsReservedKey(%q) = %v, want %v", tt.key, got, tt.reserved)
+		}
+		if got := EscapeKey(tt.key); got != tt.escaped {
+			t.Errorf("EscapeKey(%q) = %q, want %q", tt.key, got, tt.escaped)
+		}
+		if got := UnescapeKey(EscapeKey(tt.key)); got != tt.key {
+			t.Errorf("UnescapeKey(EscapeKey(%q)) = %q", tt.key, got)
+		}
+		if IsReservedKey(EscapeKey(tt.key)) {
+			t.Errorf("EscapeKey(%q) = %q is reserved", tt.key, EscapeKey(tt.key))
+		}
+	}
+	if got := UnescapeKey("@type"); got != "@type" {
+		t.Errorf("UnescapeKey(%q) = %q, want it unchanged", "@type", got)
 	}
 }

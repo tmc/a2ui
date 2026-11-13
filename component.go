@@ -12,13 +12,24 @@ import (
 //
 // MarshalJSON/UnmarshalJSON in zz_component_marshal.go handle
 // serialization, using the "component" field as a discriminator.
+//
+// CatalogID, Accessibility, Metadata and Checks are the component
+// envelope, encoded with the reserved keys "@catalogId",
+// "@accessibility", "@metadata" and "@checks", so that a catalog may
+// declare component properties with the bare names. Early drafts of
+// A2UI 1.0 used the bare names for the envelope. As the specification
+// asks during the transition, decoding a component of a type that this
+// package defines also accepts the bare names, which those types do not
+// declare, and reports an error for a component that has both the bare
+// and the "@" name. Encoding uses only the "@" names. The bare names on
+// a custom component are left in its properties.
 type Component struct {
 	ID            string                   `json:"id"`
-	CatalogID     string                   `json:"catalogId,omitempty"`
-	Accessibility *AccessibilityAttributes `json:"accessibility,omitempty"`
-	Metadata      *Metadata                `json:"metadata,omitempty"`
+	CatalogID     string                   `json:"@catalogId,omitempty"`
+	Accessibility *AccessibilityAttributes `json:"@accessibility,omitempty"`
+	Metadata      *Metadata                `json:"@metadata,omitempty"`
 	Weight        *float64                 `json:"weight,omitempty"`
-	Checks        []CheckRule              `json:"checks,omitempty"`
+	Checks        []CheckRule              `json:"@checks,omitempty"`
 
 	// Concrete type fields (exactly one non-nil).
 	Text          *TextComponent          `json:"-"`
@@ -50,13 +61,16 @@ type CustomComponent struct {
 	Type string
 
 	// Properties holds the component-specific fields, those other than
-	// the common fields of [Component] and "component".
+	// the common fields of [Component] and "component". They may include
+	// properties named "catalogId", "accessibility", "metadata" or
+	// "checks", which are distinct from the component envelope.
 	Properties map[string]json.RawMessage
 }
 
 // MarshalJSON encodes the properties of c as a JSON object.
 // It reports an error if c's Type is empty or has its own field in
-// [Component], or if a property has the name of a common field.
+// [Component], or if a property has the name of a common field or
+// another name reserved by [IsReservedKey].
 func (c *CustomComponent) MarshalJSON() ([]byte, error) {
 	if c.Type == "" {
 		return nil, fmt.Errorf("a2ui: custom component has no type")
@@ -69,6 +83,11 @@ func (c *CustomComponent) MarshalJSON() ([]byte, error) {
 			return nil, fmt.Errorf("a2ui: custom component %s: property %q is reserved", c.Type, key)
 		}
 	}
+	for key := range c.Properties {
+		if IsReservedKey(key) {
+			return nil, fmt.Errorf("a2ui: custom component %s: property %q is reserved", c.Type, key)
+		}
+	}
 	if c.Properties == nil {
 		return []byte("{}"), nil
 	}
@@ -76,7 +95,7 @@ func (c *CustomComponent) MarshalJSON() ([]byte, error) {
 }
 
 // commonKeys lists the JSON names of the fields shared by all components.
-var commonKeys = []string{"id", "component", "catalogId", "accessibility", "metadata", "weight", "checks"}
+var commonKeys = []string{"id", "component", "@catalogId", "@accessibility", "@metadata", "weight", "@checks"}
 
 func (c Component) componentData() (string, any, int) {
 	var (
@@ -161,11 +180,58 @@ func (c Component) ComponentType() string {
 // componentCommon holds the fields shared by all components.
 type componentCommon struct {
 	ID            string                   `json:"id"`
-	CatalogID     string                   `json:"catalogId,omitempty"`
-	Accessibility *AccessibilityAttributes `json:"accessibility,omitempty"`
-	Metadata      *Metadata                `json:"metadata,omitempty"`
+	CatalogID     string                   `json:"@catalogId,omitempty"`
+	Accessibility *AccessibilityAttributes `json:"@accessibility,omitempty"`
+	Metadata      *Metadata                `json:"@metadata,omitempty"`
 	Weight        *float64                 `json:"weight,omitempty"`
-	Checks        []CheckRule              `json:"checks,omitempty"`
+	Checks        []CheckRule              `json:"@checks,omitempty"`
+}
+
+// UnmarshalJSON decodes the common fields of the component data.
+// For a type that this package defines, it accepts the bare envelope
+// keys of early A2UI 1.0 drafts in place of the "@" keys, as described
+// for [Component].
+func (cm *componentCommon) UnmarshalJSON(data []byte) error {
+	type alias componentCommon
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*cm = componentCommon(a)
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	var typ string
+	if raw, ok := obj["component"]; ok {
+		if err := json.Unmarshal(raw, &typ); err != nil {
+			return err
+		}
+	}
+	if !isDefinedComponentType(typ) {
+		return nil
+	}
+	for _, f := range []struct {
+		key   string
+		value any
+	}{
+		{"catalogId", &cm.CatalogID},
+		{"accessibility", &cm.Accessibility},
+		{"metadata", &cm.Metadata},
+		{"checks", &cm.Checks},
+	} {
+		raw, ok := obj[f.key]
+		if !ok {
+			continue
+		}
+		if _, ok := obj["@"+f.key]; ok {
+			return fmt.Errorf("a2ui: component %q has both %q and %q", cm.ID, "@"+f.key, f.key)
+		}
+		if err := json.Unmarshal(raw, f.value); err != nil {
+			return fmt.Errorf("a2ui: component %q: %s: %w", cm.ID, f.key, err)
+		}
+	}
+	return nil
 }
 
 func (c Component) common() componentCommon {

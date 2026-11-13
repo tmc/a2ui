@@ -29,8 +29,9 @@ var (
 // there: the JSON names of a struct's fields, the fields of the set
 // variant of a union type such as [a2ui.DynamicString], and for a
 // component, its common fields, "component" and the fields of its
-// type. Values of type any, such as a data model, and the properties
-// of a custom component may hold any fields.
+// type, as well as the bare envelope keys that decoding accepts in
+// place of the "@" keys. Values of type any, such as a data model, and
+// the properties of a custom component may hold any fields.
 func checkFields(data []byte, msgs []a2ui.AgentMessage) error {
 	var raw any
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -118,6 +119,15 @@ func unknownStructField(obj map[string]any, v reflect.Value, path string) error 
 				continue
 			}
 			maps.Copy(fields, jsonFields(f.Elem()))
+		}
+		if !anyField {
+			// Decoding accepts the bare envelope keys of early A2UI
+			// 1.0 drafts for the types of package a2ui.
+			for _, key := range []string{"catalogId", "accessibility", "metadata", "checks"} {
+				if _, ok := fields[key]; !ok {
+					fields[key] = fields["@"+key]
+				}
+			}
 		}
 	}
 	for _, key := range slices.Sorted(maps.Keys(obj)) {

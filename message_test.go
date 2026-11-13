@@ -129,6 +129,21 @@ func TestAgentMessageRoundTrip(t *testing.T) {
 			},
 		},
 		{
+			name: "call_renderer_function_on_surface",
+			msg: AgentMessage{
+				Version: Version,
+				CallRendererFunction: &CallRendererFunction{
+					SurfaceID:      "test-1",
+					FunctionCallID: "call-1",
+					CallFunction: FunctionCall{
+						Call:      "lookup",
+						CatalogID: "https://example.com/catalog.json",
+						Args:      map[string]any{"q": map[string]any{"@path": "/q"}},
+					},
+				},
+			},
+		},
+		{
 			name: "agent_function_response",
 			msg: AgentMessage{
 				Version:               Version,
@@ -171,7 +186,7 @@ func TestAgentMessageRoundTrip(t *testing.T) {
 }
 
 func TestUpdateDataModelNullValue(t *testing.T) {
-	data := []byte(`{"version":"v1.0","updateDataModel":{"surfaceId":"s1","path":"/x","value":null}}`)
+	data := []byte(`{"version":"1.0","updateDataModel":{"surfaceId":"s1","path":"/x","value":null}}`)
 	var msg AgentMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
 		t.Fatal(err)
@@ -304,9 +319,9 @@ func TestRendererErrorTargets(t *testing.T) {
 		})
 	}
 	for _, raw := range []string{
-		`{"version":"v1.0","error":{"code":"ERR","message":"bad"}}`,
-		`{"version":"v1.0","error":{"code":"ERR","message":"bad","surfaceId":"s1","functionCallId":"call-1"}}`,
-		`{"version":"v1.0","error":{"code":"VALIDATION_FAILED","message":"bad","surfaceId":"s1"}}`,
+		`{"version":"1.0","error":{"code":"ERR","message":"bad"}}`,
+		`{"version":"1.0","error":{"code":"ERR","message":"bad","surfaceId":"s1","functionCallId":"call-1"}}`,
+		`{"version":"1.0","error":{"code":"VALIDATION_FAILED","message":"bad","surfaceId":"s1"}}`,
 	} {
 		var msg RendererMessage
 		if err := json.Unmarshal([]byte(raw), &msg); err == nil {
@@ -360,12 +375,12 @@ func TestAgentMessageRejectsInvalidPayloads(t *testing.T) {
 		})
 	}
 	for _, raw := range []string{
-		`{"version":"v1.0"}`,
-		`{"version":"v1.0","createSurface":{"surfaceId":"s1","catalogId":"cat"},"deleteSurface":{"surfaceId":"s1"}}`,
-		`{"version":"v1.0","callRendererFunction":{"callFunction":{"call":"lookup","catalogId":"cat"}}}`,
-		`{"version":"v1.0","callRendererFunction":{"functionCallId":"call-1","callFunction":{"catalogId":"cat"}}}`,
-		`{"version":"v1.0","callRendererFunction":{"functionCallId":"call-1","callFunction":{"call":"lookup"}}}`,
-		`{"version":"v1.0","agentFunctionResponse":{"value":"done"}}`,
+		`{"version":"1.0"}`,
+		`{"version":"1.0","createSurface":{"surfaceId":"s1","catalogId":"cat"},"deleteSurface":{"surfaceId":"s1"}}`,
+		`{"version":"1.0","callRendererFunction":{"callFunction":{"@call":"lookup","catalogId":"cat"}}}`,
+		`{"version":"1.0","callRendererFunction":{"functionCallId":"call-1","callFunction":{"catalogId":"cat"}}}`,
+		`{"version":"1.0","callRendererFunction":{"functionCallId":"call-1","callFunction":{"@call":"lookup"}}}`,
+		`{"version":"1.0","agentFunctionResponse":{"value":"done"}}`,
 	} {
 		var msg AgentMessage
 		if err := json.Unmarshal([]byte(raw), &msg); err == nil {
@@ -376,10 +391,10 @@ func TestAgentMessageRejectsInvalidPayloads(t *testing.T) {
 
 func TestRendererMessageRejectsInvalidPayloads(t *testing.T) {
 	for _, raw := range []string{
-		`{"version":"v1.0"}`,
-		`{"version":"v1.0","action":{"name":"submit","surfaceId":"s1","sourceComponentId":"btn","timestamp":"2025-01-01T00:00:00Z","context":{}},"error":{"code":"ERR","surfaceId":"s1","message":"bad"}}`,
-		`{"version":"v1.0","callAgentFunction":{"functionCallId":"call-1","callFunction":{"call":"lookup"}}}`,
-		`{"version":"v1.0","rendererFunctionResponse":{"functionCallId":"call-1"}}`,
+		`{"version":"1.0"}`,
+		`{"version":"1.0","action":{"name":"submit","surfaceId":"s1","sourceComponentId":"btn","timestamp":"2025-01-01T00:00:00Z","context":{}},"error":{"code":"ERR","surfaceId":"s1","message":"bad"}}`,
+		`{"version":"1.0","callAgentFunction":{"functionCallId":"call-1","callFunction":{"@call":"lookup"}}}`,
+		`{"version":"1.0","rendererFunctionResponse":{"functionCallId":"call-1"}}`,
 	} {
 		var msg RendererMessage
 		if err := json.Unmarshal([]byte(raw), &msg); err == nil {
@@ -471,6 +486,50 @@ func ptr[T any](v T) *T {
 	return &v
 }
 
+func TestVersion(t *testing.T) {
+	// The final A2UI 1.0 specification uses "1.0", not the "v1.0" of
+	// early drafts.
+	if Version != "1.0" {
+		t.Fatalf("Version = %q, want %q", Version, "1.0")
+	}
+	var msg AgentMessage
+	if err := json.Unmarshal([]byte(`{"version":"1.0","deleteSurface":{"surfaceId":"s1"}}`), &msg); err != nil {
+		t.Fatal(err)
+	}
+	if msg.Version != Version {
+		t.Errorf("version = %q, want %q", msg.Version, Version)
+	}
+}
+
+func TestCallRendererFunctionSurfaceID(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+		want string
+	}{
+		{"with surface", `{"version":"1.0","callRendererFunction":{"surfaceId":"s1","functionCallId":"call-1","callFunction":{"@call":"lookup","catalogId":"cat"}}}`, "s1"},
+		{"without surface", `{"version":"1.0","callRendererFunction":{"functionCallId":"call-1","callFunction":{"@call":"lookup","catalogId":"cat"}}}`, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var msg AgentMessage
+			if err := json.Unmarshal([]byte(tt.json), &msg); err != nil {
+				t.Fatal(err)
+			}
+			if got := msg.CallRendererFunction.SurfaceID; got != tt.want {
+				t.Errorf("SurfaceID = %q, want %q", got, tt.want)
+			}
+			data, err := json.Marshal(msg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != tt.json {
+				t.Errorf("Marshal = %s, want %s", data, tt.json)
+			}
+		})
+	}
+}
+
 func TestMessageDefaultVersion(t *testing.T) {
 	for _, m := range []any{
 		AgentMessage{DeleteSurface: &DeleteSurface{SurfaceID: "s1"}},
@@ -486,6 +545,32 @@ func TestMessageDefaultVersion(t *testing.T) {
 		}
 		if got.Version != Version {
 			t.Errorf("Marshal(%T) version = %q, want %q", m, got.Version, Version)
+		}
+	}
+}
+
+func TestCapabilitiesVersionKey(t *testing.T) {
+	// Capabilities are keyed by the protocol version, "1.0".
+	tests := []struct {
+		v    any
+		json string
+	}{
+		{&RendererCapabilities{}, `{"1.0":{"supportedCatalogIds":["https://example.com/catalog.json"]}}`},
+		{&AgentCapabilities{}, `{"1.0":{"supportedCatalogIds":["https://example.com/catalog.json"],"acceptsInlineCatalogs":true}}`},
+	}
+	for _, tt := range tests {
+		if err := json.Unmarshal([]byte(tt.json), tt.v); err != nil {
+			t.Fatal(err)
+		}
+		if reflect.ValueOf(tt.v).Elem().Field(0).IsNil() {
+			t.Errorf("Unmarshal(%s) into %T left V1 nil", tt.json, tt.v)
+		}
+		data, err := json.Marshal(tt.v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != tt.json {
+			t.Errorf("Marshal(%T) = %s, want %s", tt.v, data, tt.json)
 		}
 	}
 }

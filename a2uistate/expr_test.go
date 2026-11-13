@@ -7,9 +7,9 @@ import (
 )
 
 func TestParseTemplate(t *testing.T) {
-	path := func(p string) map[string]any { return map[string]any{"path": p} }
+	path := func(p string) map[string]any { return map[string]any{"@path": p} }
 	call := func(name string, args map[string]any) map[string]any {
-		return map[string]any{"call": name, "args": args}
+		return map[string]any{"@call": name, "args": args}
 	}
 	tests := []struct {
 		in   string

@@ -385,9 +385,10 @@ func parseMessage(obj string) (a2ui.AgentMessage, bool) {
 	return msg, true
 }
 
-// isV1 reports whether version is a 1.x protocol version.
+// isV1 reports whether version is a 1.x protocol version, such as
+// "1.0". The "v1.0" of early drafts is not one.
 func isV1(version string) bool {
-	return strings.HasPrefix(version, "v1.")
+	return strings.HasPrefix(version, "1.")
 }
 
 func parsePayloadObject(obj string) (map[string]any, bool) {

@@ -30,7 +30,7 @@ func TestPureText(t *testing.T) {
 }
 
 func TestV1CallRendererFunctionPayload(t *testing.T) {
-	input := `<a2ui-json>{"version":"v1.0","callRendererFunction":{"functionCallId":"call-1","callFunction":{"call":"lookup","catalogId":"https://example.com/catalog.json"}}}</a2ui-json>`
+	input := `<a2ui-json>{"version":"1.0","callRendererFunction":{"functionCallId":"call-1","callFunction":{"@call":"lookup","catalogId":"https://example.com/catalog.json"}}}</a2ui-json>`
 
 	p := NewParser()
 	parts, err := p.ProcessChunk(input)
@@ -65,13 +65,13 @@ func TestV1CallRendererFunctionPayload(t *testing.T) {
 	if !ok {
 		t.Fatalf("callFunction = %#v, want object", msg["callFunction"])
 	}
-	if got := call["call"]; got != "lookup" {
+	if got := call["@call"]; got != "lookup" {
 		t.Fatalf("callFunction.call = %#v, want lookup", got)
 	}
 }
 
 func TestBareV1CallRendererFunctionPayload(t *testing.T) {
-	input := `before {"version":"v1.0","callRendererFunction":{"functionCallId":"call-1","callFunction":{"call":"lookup","catalogId":"https://example.com/catalog.json"}}} after`
+	input := `before {"version":"1.0","callRendererFunction":{"functionCallId":"call-1","callFunction":{"@call":"lookup","catalogId":"https://example.com/catalog.json"}}} after`
 
 	p := NewParser()
 	parts, err := p.ProcessChunk(input)
@@ -98,7 +98,7 @@ func TestBareV1CallRendererFunctionPayload(t *testing.T) {
 
 func TestVersionOnlyJSONRemainsText(t *testing.T) {
 	p := NewParser()
-	parts, err := p.ProcessChunk(`prefix {"version":"v1.0"} suffix`)
+	parts, err := p.ProcessChunk(`prefix {"version":"1.0"} suffix`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestVersionOnlyJSONRemainsText(t *testing.T) {
 	}
 	parts = append(parts, flush...)
 
-	if text := collectText(parts); text != `prefix {"version":"v1.0"} suffix` {
+	if text := collectText(parts); text != `prefix {"version":"1.0"} suffix` {
 		t.Fatalf("text = %q", text)
 	}
 	if payload := collectPayload(parts); len(payload) != 0 {

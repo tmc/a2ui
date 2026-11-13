@@ -101,14 +101,56 @@ func TestEvaluatorResolve(t *testing.T) {
 	if !reflect.DeepEqual(list, []string{"a"}) || err != nil {
 		t.Errorf("ResolveStringList(literal) = %q, %v", list, err)
 	}
-	v, err := e.ResolveValue(a2ui.ValueArray([]any{1.0, map[string]any{"call": "not", "args": map[string]any{"value": true}}, map[string]any{"path": "/missing"}}), "")
+	v, err := e.ResolveValue(a2ui.ValueArray([]any{1.0, map[string]any{"@call": "not", "args": map[string]any{"value": true}}, map[string]any{"@path": "/missing"}}), "")
 	if want := []any{1.0, false, nil}; !reflect.DeepEqual(v, want) || err != nil {
 		t.Errorf("ResolveValue(array) = %#v, %v, want %#v", v, err, want)
 	}
-	// A child template is an object, not a binding.
+	// An object with a bare "path" key, such as a child template, is a
+	// plain object, not a binding.
 	v, err = e.ResolveValue(a2ui.ValueArray([]any{map[string]any{"path": "/x", "componentId": "row"}}), "")
 	if want := []any{map[string]any{"path": "/x", "componentId": "row"}}; !reflect.DeepEqual(v, want) || err != nil {
 		t.Errorf("ResolveValue(template) = %#v, %v, want %#v", v, err, want)
+	}
+}
+
+// TestEvaluatorObjects follows the process cases of
+// conformance/core/reserved_keys.yaml in a2ui-project/a2ui.
+func TestEvaluatorObjects(t *testing.T) {
+	var m DataModel
+	m.Set("/name", "ann")
+	m.Set("/data", map[string]any{"@path": "kept"})
+	e := &Evaluator{Data: &m}
+	v, err := e.ResolveValue(a2ui.ValueObject(map[string]any{
+		"@@path":     "/static/file",
+		"@@metadata": "literal-value",
+		"path":       "/var/log/system.log",
+		"call":       "audit",
+		"name":       map[string]any{"@path": "/name"},
+		"nested":     []any{map[string]any{"@@type": "Resource"}},
+		"data":       map[string]any{"@path": "/data"},
+	}), "")
+	want := map[string]any{
+		"@path":     "/static/file",
+		"@metadata": "literal-value",
+		"path":      "/var/log/system.log",
+		"call":      "audit",
+		"name":      "ann",
+		"nested":    []any{map[string]any{"@type": "Resource"}},
+		// Values from the data model are data, not dynamic values.
+		"data": map[string]any{"@path": "kept"},
+	}
+	if !reflect.DeepEqual(v, want) || err != nil {
+		t.Errorf("ResolveValue(object) = %#v, %v, want %#v", v, err, want)
+	}
+
+	for _, d := range []a2ui.DynamicValue{
+		a2ui.ValueObject(map[string]any{"a": map[string]any{"@if": true, "then": "active"}}),
+		a2ui.ValueArray([]any{map[string]any{"@": "reserved"}}),
+		a2ui.ValueFunc(a2ui.FunctionCall{Call: "required", Args: map[string]any{"value": map[string]any{"@metadata": map[string]any{}}}}),
+	} {
+		if v, err := e.ResolveValue(d, ""); !errors.Is(err, ErrReservedKey) {
+			t.Errorf("ResolveValue(%+v) = %#v, %v, want ErrReservedKey", d, v, err)
+		}
 	}
 }
 
