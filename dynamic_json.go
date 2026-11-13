@@ -153,6 +153,13 @@ func (d DynamicValue) MarshalJSON() ([]byte, error) {
 		return json.Marshal(*d.Bool)
 	case d.Array != nil:
 		return json.Marshal(d.Array)
+	case d.Object != nil:
+		for key := range d.Object {
+			if IsReservedKey(key) {
+				return nil, fmt.Errorf("a2ui: DynamicValue object has reserved key %q", key)
+			}
+		}
+		return json.Marshal(d.Object)
 	case d.Binding != nil:
 		return json.Marshal(d.Binding)
 	case d.FunctionCall != nil:
@@ -197,19 +204,44 @@ func (d *DynamicValue) UnmarshalJSON(data []byte) error {
 		d.Array = arr
 		return nil
 	}
-	// Must be an object: binding or function call.
+	// Must be an object: a binding, a function call or a plain object.
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return fmt.Errorf("a2ui: cannot unmarshal dynamic value: %w", err)
+	}
+	if !isDirective(obj) {
+		for key := range obj {
+			if IsReservedKey(key) {
+				return fmt.Errorf("a2ui: dynamic value object has reserved key %q", key)
+			}
+		}
+		var m map[string]any
+		if err := json.Unmarshal(data, &m); err != nil {
+			return fmt.Errorf("a2ui: cannot unmarshal dynamic value: %w", err)
+		}
+		d.Object = m
+		return nil
+	}
 	return unmarshalBindingOrFunc(data, &d.Binding, &d.FunctionCall)
 }
 
-// unmarshalBindingOrFunc tries to unmarshal data as a DataBinding (has "path"
-// key) or a FunctionCall (has "call" key).
+// isDirective reports whether obj is a data binding or a function call:
+// whether it has an "@path" or an "@call" key.
+func isDirective(obj map[string]json.RawMessage) bool {
+	_, path := obj["@path"]
+	_, call := obj["@call"]
+	return path || call
+}
+
+// unmarshalBindingOrFunc tries to unmarshal data as a DataBinding (has "@path"
+// key) or a FunctionCall (has "@call" key).
 func unmarshalBindingOrFunc(data []byte, binding **DataBinding, fn **FunctionCall) error {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return fmt.Errorf("a2ui: cannot unmarshal dynamic value: %w", err)
 	}
-	if _, ok := obj["path"]; ok {
-		if _, ok := obj["call"]; ok {
+	if _, ok := obj["@path"]; ok {
+		if _, ok := obj["@call"]; ok {
 			return fmt.Errorf("a2ui: object cannot be both a data binding and a function call")
 		}
 		var db DataBinding
@@ -219,7 +251,7 @@ func unmarshalBindingOrFunc(data []byte, binding **DataBinding, fn **FunctionCal
 		*binding = &db
 		return nil
 	}
-	if _, ok := obj["call"]; ok {
+	if _, ok := obj["@call"]; ok {
 		var fc FunctionCall
 		if err := json.Unmarshal(data, &fc); err != nil {
 			return fmt.Errorf("a2ui: unmarshal function call: %w", err)
@@ -252,6 +284,9 @@ func countDynamicValueFields(d DynamicValue) int {
 		count++
 	}
 	if d.Array != nil {
+		count++
+	}
+	if d.Object != nil {
 		count++
 	}
 	if d.Binding != nil {

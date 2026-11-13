@@ -1,16 +1,58 @@
 package a2ui
 
+import "strings"
+
 // DataBinding references a value in the data model by JSON Pointer path.
+// It is encoded as {"@path": ...}.
 type DataBinding struct {
-	Path string `json:"path"`
+	Path string `json:"@path"`
 }
 
 // FunctionCall invokes a named catalog function.
+// It is encoded as {"@call": ..., "args": ...}.
 // CatalogID overrides the surface's default catalog.
+//
+// The values in Args are dynamic. They are Go values such as a
+// [DynamicString], or JSON values as on the wire, in which an object
+// with an "@path" key is a data binding, one with an "@call" key is a
+// function call, and in any other object a key with a literal leading
+// "@" is escaped as described for [EscapeKey].
 type FunctionCall struct {
-	Call      string         `json:"call"`
+	Call      string         `json:"@call"`
 	CatalogID string         `json:"catalogId,omitempty"`
 	Args      map[string]any `json:"args,omitempty"`
+}
+
+// IsReservedKey reports whether key is reserved for protocol
+// directives in a dynamic object: whether it starts with a single "@",
+// as "@path", "@call" and "@" do, but "@@path" does not.
+//
+// In an object that is evaluated as a dynamic value, such as a
+// [DynamicValue] object or an object in [FunctionCall.Args], only the
+// directives "@path" and "@call" may have a reserved key. Any other
+// reserved key is an error.
+func IsReservedKey(key string) bool {
+	return strings.HasPrefix(key, "@") && !strings.HasPrefix(key, "@@")
+}
+
+// EscapeKey returns key escaped for use in an object that is evaluated
+// as a dynamic value. A key with a leading "@" is escaped by doubling
+// the "@", so that "@type" becomes "@@type"; other keys are unchanged.
+func EscapeKey(key string) string {
+	if strings.HasPrefix(key, "@") {
+		return "@" + key
+	}
+	return key
+}
+
+// UnescapeKey reverses [EscapeKey]: it removes one "@" from a key that
+// starts with "@@", so that "@@type" becomes "@type". Other keys are
+// unchanged.
+func UnescapeKey(key string) string {
+	if strings.HasPrefix(key, "@@") {
+		return key[1:]
+	}
+	return key
 }
 
 // ChildList is either a static list of component IDs or a dynamic template.
@@ -73,6 +115,8 @@ type EventAction struct {
 
 // IconNameOrPath is a well-known icon name, a custom SVG path, or a
 // binding to an icon name in the data model. Exactly one field is non-nil.
+// The three forms are encoded as a string, {"svgPath": ...} and
+// {"@path": ...}.
 type IconNameOrPath struct {
 	Name    *IconName
 	SVGPath *DynamicString

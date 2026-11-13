@@ -25,7 +25,8 @@
 // their arguments.
 //
 // The errors of an Evaluator wrap [ErrNoValue], [ErrWrongType],
-// [ErrUnknownFunction], [ErrInvalidArgs] or [ErrAction].
+// [ErrUnknownFunction], [ErrInvalidArgs], [ErrAction] or
+// [ErrReservedKey].
 //
 // The types in this package are not safe for concurrent use.
 package a2uistate

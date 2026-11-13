@@ -58,7 +58,7 @@ func ExampleValidator_ValidateMessages() {
 		panic(err)
 	}
 	validator := catalog.Validator()
-	msgs, err := validator.ParseMessages([]byte(`{"version":"v1.0","deleteSurface":{"surfaceId":"s1"}}`))
+	msgs, err := validator.ParseMessages([]byte(`{"version":"1.0","deleteSurface":{"surfaceId":"s1"}}`))
 	if err != nil {
 		panic(err)
 	}
@@ -75,8 +75,8 @@ func ExampleValidationError() {
 		panic(err)
 	}
 	err = catalog.Validator().ValidateJSON([]byte(`[
-		{"version": "v1.0", "createSurface": {"surfaceId": "s1"}},
-		{"version": "v1.0", "updateComponents": {"surfaceId": "s1", "components": [
+		{"version":"1.0", "createSurface": {"surfaceId": "s1"}},
+		{"version":"1.0", "updateComponents": {"surfaceId": "s1", "components": [
 			{"id": "root", "component": "Card"}
 		]}}
 	]`))
@@ -98,8 +98,8 @@ func ExampleErrInvalidTree() {
 		panic(err)
 	}
 	err = catalog.Validator().ValidateJSON([]byte(`[
-		{"version": "v1.0", "createSurface": {"surfaceId": "s1"}},
-		{"version": "v1.0", "updateComponents": {"surfaceId": "s1", "components": [
+		{"version":"1.0", "createSurface": {"surfaceId": "s1"}},
+		{"version":"1.0", "updateComponents": {"surfaceId": "s1", "components": [
 			{"id": "root", "component": "Card", "child": "body"}
 		]}}
 	]`))

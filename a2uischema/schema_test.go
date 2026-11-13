@@ -98,6 +98,29 @@ func TestValidatorRejectsOtherVersions(t *testing.T) {
 	}
 }
 
+func TestValidatorRejectsDraftVersion(t *testing.T) {
+	// Early drafts of A2UI 1.0 used "v1.0"; the specification uses "1.0".
+	err := mustBasicValidator(t).ValidateJSON([]byte(`{"version":"v1.0","deleteSurface":{"surfaceId":"s1"}}`))
+	if !errors.Is(err, ErrVersionMismatch) {
+		t.Fatalf("ValidateJSON(v1.0) = %v, want ErrVersionMismatch", err)
+	}
+	if err := mustBasicValidator(t).ValidateJSON([]byte(`{"version":"1.0","deleteSurface":{"surfaceId":"s1"}}`)); err != nil {
+		t.Fatalf("ValidateJSON(1.0) = %v", err)
+	}
+}
+
+func TestValidatorTextFieldValueRequired(t *testing.T) {
+	const msgs = `{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"TextField","label":"Name"}]}}`
+	err := mustBasicValidator(t).ValidateJSON([]byte(msgs))
+	var ve *ValidationError
+	if !errors.As(err, &ve) || !errors.Is(err, ErrInvalidMessage) {
+		t.Fatalf("ValidateJSON() = %v, want ErrInvalidMessage", err)
+	}
+	if want := "/updateComponents/components/0/value"; ve.Path != want {
+		t.Errorf("Path = %q, want %q", ve.Path, want)
+	}
+}
+
 func TestValidatorErrors(t *testing.T) {
 	tests := []struct {
 		name string
@@ -113,7 +136,7 @@ func TestValidatorErrors(t *testing.T) {
 		},
 		{
 			name: "missing field",
-			msgs: `[{"version":"v1.0","deleteSurface":{}}]`,
+			msgs: `[{"version":"1.0","deleteSurface":{}}]`,
 			want: ErrInvalidMessage,
 			path: "/0/deleteSurface/surfaceId",
 		},
@@ -124,49 +147,49 @@ func TestValidatorErrors(t *testing.T) {
 		},
 		{
 			name: "duplicate id",
-			msgs: `{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Column","children":["dup"]},{"id":"dup","component":"Text","text":"one"},{"id":"dup","component":"Text","text":"two"}]}}`,
+			msgs: `{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Column","children":["dup"]},{"id":"dup","component":"Text","text":"one"},{"id":"dup","component":"Text","text":"two"}]}}`,
 			want: ErrInvalidTree,
 			path: "/updateComponents/components/2/id",
 		},
 		{
 			name: "unknown function",
-			msgs: `{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Button","child":"label","action":{"functionCall":{"call":"definitelyUnknown"}}},{"id":"label","component":"Text","text":"Run"}]}}`,
+			msgs: `{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Button","child":"label","action":{"functionCall":{"@call":"definitelyUnknown"}}},{"id":"label","component":"Text","text":"Run"}]}}`,
 			want: ErrUnknownFunction,
-			path: "/updateComponents/components/0/action/functionCall/call",
+			path: "/updateComponents/components/0/action/functionCall/@call",
 		},
 		{
 			name: "invalid path",
-			msgs: `{"version":"v1.0","updateDataModel":{"surfaceId":"s1","path":"/bad~path","value":"value"}}`,
+			msgs: `{"version":"1.0","updateDataModel":{"surfaceId":"s1","path":"/bad~path","value":"value"}}`,
 			want: ErrInvalidMessage,
 			path: "/updateDataModel/path",
 		},
 		{
 			name: "invalid binding",
-			msgs: `{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Text","text":{"path":"~bad"}}]}}`,
+			msgs: `{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Text","text":{"@path":"~bad"}}]}}`,
 			want: ErrInvalidMessage,
-			path: "/updateComponents/components/0/text/path",
+			path: "/updateComponents/components/0/text/@path",
 		},
 		{
 			name: "orphan",
-			msgs: `[{"version":"v1.0","createSurface":{"surfaceId":"s1"}},{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Column","children":["greeting"]},{"id":"greeting","component":"Text","text":"hello"},{"id":"extra","component":"Text","text":"orphan"}]}}]`,
+			msgs: `[{"version":"1.0","createSurface":{"surfaceId":"s1"}},{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Column","children":["greeting"]},{"id":"greeting","component":"Text","text":"hello"},{"id":"extra","component":"Text","text":"orphan"}]}}]`,
 			want: ErrInvalidTree,
 			path: "/1/updateComponents/components/2",
 		},
 		{
 			name: "missing root",
-			msgs: `[{"version":"v1.0","createSurface":{"surfaceId":"s1"}},{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"a","component":"Text","text":"a"}]}}]`,
+			msgs: `[{"version":"1.0","createSurface":{"surfaceId":"s1"}},{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"a","component":"Text","text":"a"}]}}]`,
 			want: ErrInvalidTree,
 			path: "/0/createSurface",
 		},
 		{
 			name: "cycle without root",
-			msgs: `{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"a","component":"Card","child":"b"},{"id":"b","component":"Card","child":"a"}]}}`,
+			msgs: `{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"a","component":"Card","child":"b"},{"id":"b","component":"Card","child":"a"}]}}`,
 			want: ErrInvalidTree,
 			path: "/updateComponents/components/0",
 		},
 		{
 			name: "unknown reference",
-			msgs: `[{"version":"v1.0","createSurface":{"surfaceId":"s1"}},{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Column","children":["a","b"]},{"id":"a","component":"Text","text":"a"}]}}]`,
+			msgs: `[{"version":"1.0","createSurface":{"surfaceId":"s1"}},{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Column","children":["a","b"]},{"id":"a","component":"Text","text":"a"}]}}]`,
 			want: ErrInvalidTree,
 			path: "/1/updateComponents/components/0/children/1",
 		},
@@ -197,7 +220,7 @@ func TestValidatorUnknownComponent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const msgs = `[{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Column","children":["t"]},{"id":"t","component":"Text","text":"hi"}]}}]`
+	const msgs = `[{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Column","children":["t"]},{"id":"t","component":"Text","text":"hi"}]}}]`
 	err = catalog.Validator().ValidateJSON([]byte(msgs))
 	var ve *ValidationError
 	if !errors.As(err, &ve) || ve.Err != ErrUnknownComponent {
@@ -209,7 +232,7 @@ func TestValidatorUnknownComponent(t *testing.T) {
 }
 
 func TestValidatorUnknownCustomComponent(t *testing.T) {
-	const msgs = `{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Gauge","value":3}]}}`
+	const msgs = `{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Gauge","value":3}]}}`
 	err := mustBasicValidator(t).ValidateJSON([]byte(msgs))
 	if !errors.Is(err, ErrUnknownComponent) {
 		t.Fatalf("ValidateJSON() = %v, want ErrUnknownComponent", err)
@@ -229,9 +252,9 @@ func TestValidatorCustomCatalog(t *testing.T) {
 	}
 	validator := catalog.Validator()
 
-	const create = `{"version":"v1.0","createSurface":{"surfaceId":"s1","catalogId":"https://example.com/custom_catalog.json"}}`
+	const create = `{"version":"1.0","createSurface":{"surfaceId":"s1","catalogId":"https://example.com/custom_catalog.json"}}`
 	update := func(components string) string {
-		return `{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[` + components + `]}}`
+		return `{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[` + components + `]}}`
 	}
 	tests := []struct {
 		name string
@@ -266,6 +289,115 @@ func TestValidatorCustomCatalog(t *testing.T) {
 	}
 }
 
+// TestValidatorReservedKeys follows the validate cases of
+// conformance/core/reserved_keys.yaml in a2ui-project/a2ui.
+func TestValidatorReservedKeys(t *testing.T) {
+	validator := mustCustomValidator(t)
+	basic := mustBasicValidator(t)
+	const create = `{"version":"1.0","createSurface":{"surfaceId":"s1"}}`
+	update := func(components string) string {
+		return `[` + create + `,{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[` + components + `]}}]`
+	}
+	card := func(details string) string {
+		return update(`{"id":"root","component":"CustomCard","details":` + details + `}`)
+	}
+	const details = "/1/updateComponents/components/0/details"
+	tests := []struct {
+		name      string
+		validator *Validator
+		msgs      string
+		valid     bool
+		path      string // of the error, if known when decoding
+	}{
+		{"at path", basic, update(`{"id":"root","component":"Text","text":{"@path":"/user/displayName"}}`), true, ""},
+		{"at call", basic, update(`{"id":"root","component":"Text","text":{"@call":"formatString","args":{"value":"Hello world"}}}`), true, ""},
+		{"at index", basic, update(`{"id":"root","component":"List","children":{"componentId":"item","path":"/items"}},{"id":"item","component":"Text","text":{"@call":"@index","args":{"offset":1}}}`), true, ""},
+		{"plain path and call", validator, card(`{"path":"/var/log/system.log","call":"audit"}`), true, ""},
+		{"escaped", validator, card(`{"@@path":"/static/file","@@type":"Resource"}`), true, ""},
+		{"escaped metadata", validator, card(`{"@@metadata":"literal-value"}`), true, ""},
+		{"unknown directive", validator, card(`{"@if":true,"then":"active"}`), false, details},
+		{"bare at", validator, card(`{"@":"reserved"}`), false, details},
+		{"nested envelope key", validator, card(`{"@metadata":{"extensions":{"com_example_nested":"disallowed"}}}`), false, details},
+		{"nested object", validator, card(`{"a":{"@type":"x"}}`), false, details + "/a/@type"},
+		{"in array", validator, card(`[{"@@type":"x"},{"@type":"x"}]`), false, details + "/1/@type"},
+		{"in event context", basic, update(`{"id":"root","component":"Button","child":"t","action":{"event":{"name":"go","context":{"k":{"@type":"x"}}}}},{"id":"t","component":"Text","text":"Go"}`), false, ""},
+		{"escaped in event context", basic, update(`{"id":"root","component":"Button","child":"t","action":{"event":{"name":"go","context":{"k":{"@@type":"x"}}}}},{"id":"t","component":"Text","text":"Go"}`), true, ""},
+		{"in function args", basic, update(`{"id":"root","component":"Text","text":{"@call":"formatString","args":{"value":{"@type":"x"}}}}`), false, "/1/updateComponents/components/0/text/args/value/@type"},
+		{"bare path in DynamicString", basic, update(`{"id":"root","component":"Text","text":{"path":"/name"}}`), false, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.validator.ValidateJSON([]byte(tt.msgs))
+			if tt.valid {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			var ve *ValidationError
+			if !errors.As(err, &ve) || !errors.Is(err, ErrInvalidMessage) {
+				t.Fatalf("ValidateJSON() = %v, want ErrInvalidMessage", err)
+			}
+			if !strings.HasPrefix(ve.Path, tt.path) {
+				t.Errorf("Path = %q, want %q", ve.Path, tt.path)
+			}
+		})
+	}
+}
+
+func TestValidatorLegacyEnvelopeKeys(t *testing.T) {
+	validator := mustCustomValidator(t)
+	component := func(c string) string {
+		return `{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[` + c + `]}}`
+	}
+	const check = `[{"condition":{"@path":"/ok"}}]`
+
+	// A bare key that the component's schema does not declare is the
+	// envelope key of an early draft.
+	msgs, err := validator.ParseMessages([]byte(component(`{"id":"root","component":"CustomCard","checks":` + check + `}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := msgs[0].UpdateComponents.Components[0]
+	if len(c.Checks) != 1 || c.Custom.Properties["checks"] != nil {
+		t.Errorf("CustomCard checks: Checks = %+v, Properties = %v, want the checks in the envelope", c.Checks, c.Custom.Properties)
+	}
+
+	// One that it declares is a property.
+	msgs, err = validator.ParseMessages([]byte(component(`{"id":"root","component":"Table","metadata":{"page":2},"@metadata":{"extensions":{"x":1}}}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c = msgs[0].UpdateComponents.Components[0]
+	if c.Metadata == nil || string(c.Custom.Properties["metadata"]) != `{"page":2}` {
+		t.Errorf("Table metadata: Metadata = %+v, Properties = %v, want both", c.Metadata, c.Custom.Properties)
+	}
+
+	for _, bad := range []string{
+		`{"id":"root","component":"CustomCard","checks":` + check + `,"@checks":` + check + `}`,
+		`{"id":"root","component":"Text","text":"hi","checks":` + check + `,"@checks":` + check + `}`,
+	} {
+		if _, err := validator.ParseMessages([]byte(component(bad))); !errors.Is(err, ErrInvalidMessage) {
+			t.Errorf("ParseMessages(%s) = %v, want ErrInvalidMessage", bad, err)
+		}
+	}
+}
+
+func mustCustomValidator(t *testing.T) *Validator {
+	t.Helper()
+	manager, err := NewSchemaManager([]CatalogConfig{
+		CatalogConfigFromPath("custom", "testdata/custom_catalog.json", ""),
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := manager.SelectedCatalog(nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return catalog.Validator()
+}
+
 func TestInlineCatalog(t *testing.T) {
 	manager, err := NewSchemaManager([]CatalogConfig{BasicCatalogConfig()}, true)
 	if err != nil {
@@ -297,14 +429,14 @@ func TestInlineCatalog(t *testing.T) {
 		}
 	}
 
-	const msgs = `[{"version":"v1.0","createSurface":{"surfaceId":"s1","catalogId":"https://example.com/inline.json"}},{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Gauge","label":"l"},{"id":"l","component":"Text","text":"hi"}]}}]`
+	const msgs = `[{"version":"1.0","createSurface":{"surfaceId":"s1","catalogId":"https://example.com/inline.json"}},{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Gauge","label":"l"},{"id":"l","component":"Text","text":"hi"}]}}]`
 	if err := catalog.Validator().ValidateJSON([]byte(msgs)); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestValidationErrorMessage(t *testing.T) {
-	const msgs = `{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Card"}]}}`
+	const msgs = `{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Card"}]}}`
 	err := mustBasicValidator(t).ValidateJSON([]byte(msgs))
 	const want = "a2uischema: message[0]: updateComponents: component[0] (root): card.child is required"
 	if err == nil || err.Error() != want {
@@ -313,9 +445,9 @@ func TestValidationErrorMessage(t *testing.T) {
 }
 
 func TestParseAndValidate(t *testing.T) {
-	const create = `{"version":"v1.0","createSurface":{"surfaceId":"s1"}}`
+	const create = `{"version":"1.0","createSurface":{"surfaceId":"s1"}}`
 	update := func(component string) string {
-		return `<a2ui-json>[` + create + `,{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[` + component + `]}}]</a2ui-json>`
+		return `<a2ui-json>[` + create + `,{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[` + component + `]}}]</a2ui-json>`
 	}
 	tests := []struct {
 		name    string
@@ -323,10 +455,10 @@ func TestParseAndValidate(t *testing.T) {
 		want    error // with the basic validator; nil accepts everything
 	}{
 		{"valid", update(`{"id":"root","component":"Text","text":"hi"}`), nil},
-		{"other catalog", `{"version":"v1.0","createSurface":{"surfaceId":"s1","catalogId":"https://example.com/other.json"}}`, ErrInvalidMessage},
+		{"other catalog", `{"version":"1.0","createSurface":{"surfaceId":"s1","catalogId":"https://example.com/other.json"}}`, ErrInvalidMessage},
 		{"button without child", update(`{"id":"root","component":"Button","action":{"event":{"name":"go"}}}`), ErrInvalidMessage},
 		{"button without action", update(`{"id":"root","component":"Button","child":"t"},{"id":"t","component":"Text","text":"go"}`), ErrInvalidMessage},
-		{"function call returnType", update(`{"id":"root","component":"Text","text":{"call":"formatString","args":{"value":"x"},"returnType":"string"}}`), ErrInvalidMessage},
+		{"function call returnType", update(`{"id":"root","component":"Text","text":{"@call":"formatString","args":{"value":"x"},"returnType":"string"}}`), ErrInvalidMessage},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -344,10 +476,10 @@ func TestParseAndValidate(t *testing.T) {
 func TestValidatorComponentRefs(t *testing.T) {
 	validator := mustBasicValidator(t)
 	const (
-		create  = `{"version":"v1.0","createSurface":{"surfaceId":"s1"}}`
-		root    = `{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Card","child":"body"}]}}`
-		body    = `{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"body","component":"Text","text":"hi"}]}}`
-		deleteS = `{"version":"v1.0","deleteSurface":{"surfaceId":"s1"}}`
+		create  = `{"version":"1.0","createSurface":{"surfaceId":"s1"}}`
+		root    = `{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Card","child":"body"}]}}`
+		body    = `{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"body","component":"Text","text":"hi"}]}}`
+		deleteS = `{"version":"1.0","deleteSurface":{"surfaceId":"s1"}}`
 	)
 	tests := []struct {
 		name    string
@@ -361,7 +493,7 @@ func TestValidatorComponentRefs(t *testing.T) {
 		// components outside it, and need not include root.
 		{"existing_surface_ref", []string{root}, false},
 		{"existing_surface_no_root", []string{body}, false},
-		{"existing_surface_orphan", []string{`{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Card","child":"body"},{"id":"body","component":"Text","text":"hi"},{"id":"extra","component":"Text","text":"hi"}]}}`}, false},
+		{"existing_surface_orphan", []string{`{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Card","child":"body"},{"id":"body","component":"Text","text":"hi"},{"id":"extra","component":"Text","text":"hi"}]}}`}, false},
 		{"recreated_surface", []string{root, deleteS, create, body}, true},
 	}
 	for _, tt := range tests {
@@ -378,11 +510,11 @@ func TestValidatorComponentRefs(t *testing.T) {
 func TestValidatorUnknownFields(t *testing.T) {
 	validator := mustBasicValidator(t)
 	const (
-		create = `{"version":"v1.0","createSurface":{"surfaceId":"s1"}}`
+		create = `{"version":"1.0","createSurface":{"surfaceId":"s1"}}`
 		text   = `{"id":"root","component":"Text","text":%s}`
 	)
 	update := func(component string) string {
-		return `[` + create + `,{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[` + component + `]}}]`
+		return `[` + create + `,{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[` + component + `]}}]`
 	}
 	tests := []struct {
 		name string
@@ -390,35 +522,37 @@ func TestValidatorUnknownFields(t *testing.T) {
 		path string // of the unknown field, or "" for none
 	}{
 		{"known", update(fmt.Sprintf(text, `"hi"`)), ""},
-		{"empty dropped fields", `{"version":"v1.0","createSurface":{"surfaceId":"s1","catalogId":"","sendDataModel":false,"components":[],"dataModel":{}}}`, ""},
-		{"null value", update(`{"id":"root","component":"Text","text":"hi","accessibility":{"label":null}}`), ""},
-		{"custom properties", `{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"g","component":"Gauge","anything":1}]}}`, ""},
-		{"data model", `{"version":"v1.0","updateDataModel":{"surfaceId":"s1","path":"/a","value":{"any":{"key":1}}}}`, ""},
-		{"message", `{"version":"v1.0","deleteSurface":{"surfaceId":"s1"},"extra":1}`, "/extra"},
-		{"payload", `{"version":"v1.0","deleteSurface":{"surfaceId":"s1","extra":1}}`, "/deleteSurface/extra"},
+		{"empty dropped fields", `{"version":"1.0","createSurface":{"surfaceId":"s1","catalogId":"","sendDataModel":false,"components":[],"dataModel":{}}}`, ""},
+		{"null value", update(`{"id":"root","component":"Text","text":"hi","@accessibility":{"label":null}}`), ""},
+		{"custom properties", `{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"g","component":"Gauge","anything":1}]}}`, ""},
+		{"data model", `{"version":"1.0","updateDataModel":{"surfaceId":"s1","path":"/a","value":{"any":{"key":1}}}}`, ""},
+		{"message", `{"version":"1.0","deleteSurface":{"surfaceId":"s1"},"extra":1}`, "/extra"},
+		{"payload", `{"version":"1.0","deleteSurface":{"surfaceId":"s1","extra":1}}`, "/deleteSurface/extra"},
 		{"component", update(`{"id":"root","component":"Text","text":"hi","colour":"red"}`), "/1/updateComponents/components/0/colour"},
-		{"field case", `{"version":"v1.0","deleteSurface":{"SurfaceId":"s1"}}`, "/deleteSurface/SurfaceId"},
-		{"binding", update(fmt.Sprintf(text, `{"path":"/a","default":"x"}`)), "/1/updateComponents/components/0/text/default"},
-		{"function call returnType", update(fmt.Sprintf(text, `{"call":"formatString","args":{"value":"x"},"returnType":"string"}`)), "/1/updateComponents/components/0/text/returnType"},
-		{"false", `{"version":"v1.0","createSurface":{"surfaceId":"s1","typo":false}}`, "/createSurface/typo"},
-		{"zero", `{"version":"v1.0","createSurface":{"surfaceId":"s1","typo":0}}`, "/createSurface/typo"},
-		{"null", `{"version":"v1.0","createSurface":{"surfaceId":"s1","typo":null}}`, "/createSurface/typo"},
+		{"field case", `{"version":"1.0","deleteSurface":{"SurfaceId":"s1"}}`, "/deleteSurface/SurfaceId"},
+		{"binding", update(fmt.Sprintf(text, `{"@path":"/a","default":"x"}`)), "/1/updateComponents/components/0/text/default"},
+		{"function call returnType", update(fmt.Sprintf(text, `{"@call":"formatString","args":{"value":"x"},"returnType":"string"}`)), "/1/updateComponents/components/0/text/returnType"},
+		{"false", `{"version":"1.0","createSurface":{"surfaceId":"s1","typo":false}}`, "/createSurface/typo"},
+		{"zero", `{"version":"1.0","createSurface":{"surfaceId":"s1","typo":0}}`, "/createSurface/typo"},
+		{"null", `{"version":"1.0","createSurface":{"surfaceId":"s1","typo":null}}`, "/createSurface/typo"},
 		{"empty string", update(`{"id":"root","component":"Text","text":"hi","typo":""}`), "/1/updateComponents/components/0/typo"},
-		{"empty array", `{"version":"v1.0","typo":[],"deleteSurface":{"surfaceId":"s1"}}`, "/typo"},
-		{"empty object", update(`{"id":"root","component":"Text","text":"hi","accessibility":{"typo":{}}}`), "/1/updateComponents/components/0/accessibility/typo"},
+		{"empty array", `{"version":"1.0","typo":[],"deleteSurface":{"surfaceId":"s1"}}`, "/typo"},
+		{"empty object", update(`{"id":"root","component":"Text","text":"hi","@accessibility":{"typo":{}}}`), "/1/updateComponents/components/0/@accessibility/typo"},
 		{"other component's field", update(`{"id":"root","component":"Text","text":"hi","child":""}`), "/1/updateComponents/components/0/child"},
 		{"in action event", update(`{"id":"root","component":"Button","child":"root","action":{"event":{"name":"go","typo":null}}}`), "/1/updateComponents/components/0/action/event/typo"},
-		{"in event context", update(`{"id":"root","component":"Button","child":"root","action":{"event":{"name":"go","context":{"k":{"path":"/a","typo":0}}}}}`), "/1/updateComponents/components/0/action/event/context/k/typo"},
+		{"in event context", update(`{"id":"root","component":"Button","child":"root","action":{"event":{"name":"go","context":{"k":{"@path":"/a","typo":0}}}}}`), "/1/updateComponents/components/0/action/event/context/k/typo"},
 		{"in template", update(`{"id":"root","component":"Column","children":{"componentId":"t","path":"/a","typo":false}}`), "/1/updateComponents/components/0/children/typo"},
-		{"in check", update(`{"id":"root","component":"TextField","label":"l","checks":[{"condition":{"call":"required","args":{"value":"x"}},"typo":""}]}`), "/1/updateComponents/components/0/checks/0/typo"},
-		{"in metadata", `{"version":"v1.0","createSurface":{"surfaceId":"s1","metadata":{"typo":false}}}`, "/createSurface/metadata/typo"},
-		{"in function error", `{"version":"v1.0","agentFunctionResponse":{"functionCallId":"f","error":{"code":"c","message":"m","typo":0}}}`, "/agentFunctionResponse/error/typo"},
-		{"zero fields", `{"version":"v1.0","createSurface":{"surfaceId":"s1","catalogId":"","sendDataModel":false,"components":[],"dataModel":{},"metadata":{"extensions":{}}}}`, ""},
-		{"zero component fields", update(`{"id":"root","component":"Text","text":"hi","variant":"","weight":0,"checks":[],"catalogId":"","accessibility":{"label":"","hidden":false}}`), ""},
-		{"null fields", update(`{"id":"root","component":"Text","text":"hi","variant":null,"weight":null,"accessibility":null}`), ""},
-		{"free-form values", `{"version":"v1.0","updateDataModel":{"surfaceId":"s1","value":{"typo":null,"x":[{"y":false}]}}}`, ""},
-		{"function args", update(fmt.Sprintf(text, `{"call":"formatString","args":{"value":"x","typo":null}}`)), ""},
-		{"custom component zero", `{"version":"v1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"g","component":"Gauge","anything":null,"weight":0}]}}`, ""},
+		{"in check", update(`{"id":"root","component":"TextField","label":"l","value":"v","@checks":[{"condition":{"@call":"required","args":{"value":"x"}},"typo":""}]}`), "/1/updateComponents/components/0/@checks/0/typo"},
+		{"in legacy check", update(`{"id":"root","component":"TextField","label":"l","value":"v","checks":[{"condition":{"@call":"required","args":{"value":"x"}},"typo":""}]}`), "/1/updateComponents/components/0/checks/0/typo"},
+		{"in metadata", `{"version":"1.0","createSurface":{"surfaceId":"s1","metadata":{"typo":false}}}`, "/createSurface/metadata/typo"},
+		{"in function error", `{"version":"1.0","agentFunctionResponse":{"functionCallId":"f","error":{"code":"c","message":"m","typo":0}}}`, "/agentFunctionResponse/error/typo"},
+		{"zero fields", `{"version":"1.0","createSurface":{"surfaceId":"s1","catalogId":"","sendDataModel":false,"components":[],"dataModel":{},"metadata":{"extensions":{}}}}`, ""},
+		{"zero component fields", update(`{"id":"root","component":"Text","text":"hi","variant":"","weight":0,"@checks":[],"@catalogId":"","@accessibility":{"label":"","hidden":false}}`), ""},
+		{"legacy component fields", update(`{"id":"root","component":"Text","text":"hi","checks":[],"catalogId":"","accessibility":{"label":""},"metadata":{"extensions":{}}}`), ""},
+		{"null fields", update(`{"id":"root","component":"Text","text":"hi","variant":null,"weight":null,"@accessibility":null}`), ""},
+		{"free-form values", `{"version":"1.0","updateDataModel":{"surfaceId":"s1","value":{"typo":null,"x":[{"y":false}]}}}`, ""},
+		{"function args", update(fmt.Sprintf(text, `{"@call":"formatString","args":{"value":"x","typo":null}}`)), ""},
+		{"custom component zero", `{"version":"1.0","updateComponents":{"surfaceId":"s1","components":[{"id":"g","component":"Gauge","anything":null,"weight":0}]}}`, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -473,10 +607,10 @@ func TestValidatorComposition(t *testing.T) {
 
 	// See testdata/composition_catalog.json for the constraints.
 	create := func(surfaceID string) string {
-		return `{"version":"v1.0","createSurface":{"surfaceId":"` + surfaceID + `","catalogId":"https://example.com/composition_catalog.json"}}`
+		return `{"version":"1.0","createSurface":{"surfaceId":"` + surfaceID + `","catalogId":"https://example.com/composition_catalog.json"}}`
 	}
 	update := func(surfaceID, components string) string {
-		return `{"version":"v1.0","updateComponents":{"surfaceId":"` + surfaceID + `","components":[` + components + `]}}`
+		return `{"version":"1.0","updateComponents":{"surfaceId":"` + surfaceID + `","components":[` + components + `]}}`
 	}
 	const (
 		label  = `{"id":"label","component":"Text","text":"Go"}`

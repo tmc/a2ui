@@ -14,13 +14,13 @@ import (
 func Example() {
 	var msgs []a2ui.AgentMessage
 	err := json.Unmarshal([]byte(`[
-		{"version": "v1.0", "createSurface": {
+		{"version": "1.0", "createSurface": {
 			"surfaceId": "main",
 			"catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
-			"components": [{"id": "root", "component": "Text", "text": {"path": "/greeting"}}],
+			"components": [{"id": "root", "component": "Text", "text": {"@path": "/greeting"}}],
 			"dataModel": {"greeting": "Hello"}
 		}},
-		{"version": "v1.0", "updateDataModel": {"surfaceId": "main", "path": "/greeting", "value": "Hello, world"}}
+		{"version": "1.0", "updateDataModel": {"surfaceId": "main", "path": "/greeting", "value": "Hello, world"}}
 	]`), &msgs)
 	if err != nil {
 		log.Fatal(err)

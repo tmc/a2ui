@@ -233,7 +233,7 @@ func TestDataModelResolveFunctions(t *testing.T) {
 	if b || !ok {
 		t.Errorf("ResolveBoolean(not) = %v, %v, want false, true", b, ok)
 	}
-	v, ok := m.ResolveValue(a2ui.ValueArray([]any{map[string]any{"path": "/name"}}), "")
+	v, ok := m.ResolveValue(a2ui.ValueArray([]any{map[string]any{"@path": "/name"}}), "")
 	if want := []any{"Ann"}; !reflect.DeepEqual(v, want) || !ok {
 		t.Errorf("ResolveValue(array) = %#v, %v, want %#v, true", v, ok, want)
 	}

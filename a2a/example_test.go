@@ -9,7 +9,7 @@ import (
 
 func ExampleCreateDataPart() {
 	part, err := a2a.CreateDataPart(map[string]any{
-		"version": "v1.0",
+		"version": "1.0",
 		"updateDataModel": map[string]any{
 			"surfaceId": "dashboard",
 			"value":     map[string]any{"status": "ready"},
@@ -26,7 +26,7 @@ func ExampleCreateDataPart() {
 }
 
 func ExampleA2UIData() {
-	part, err := a2a.CreateDataPart(map[string]any{"version": "v1.0", "deleteSurface": map[string]any{"surfaceId": "s1"}})
+	part, err := a2a.CreateDataPart(map[string]any{"version": "1.0", "deleteSurface": map[string]any{"surfaceId": "s1"}})
 	if err != nil {
 		panic(err)
 	}

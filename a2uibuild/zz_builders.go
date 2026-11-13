@@ -169,11 +169,12 @@ func Text(id string, text a2ui.DynamicString) a2ui.Component {
 }
 
 // TextField creates a new [a2ui.Component] of type TextField with the given id.
-func TextField(id string, label a2ui.DynamicString) a2ui.Component {
+func TextField(id string, label a2ui.DynamicString, value a2ui.DynamicString) a2ui.Component {
 	return a2ui.Component{
 		ID: id,
 		TextField: &a2ui.TextFieldComponent{
 			Label: label,
+			Value: value,
 		},
 	}
 }

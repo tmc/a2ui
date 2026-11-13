@@ -14,8 +14,8 @@ func ExampleSendA2UIJSONToClientTool_Run() {
 
 	result := tool.Run(map[string]any{
 		a2uiadk.A2UIJSONArgName: `[
-			{"version":"v1.0","createSurface":{"surfaceId":"demo","catalogId":"https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"}},
-			{"version":"v1.0","updateComponents":{"surfaceId":"demo","components":[{"component":"Text","id":"root","text":"hello"}]}}
+			{"version":"1.0","createSurface":{"surfaceId":"demo","catalogId":"https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"}},
+			{"version":"1.0","updateComponents":{"surfaceId":"demo","components":[{"component":"Text","id":"root","text":"hello"}]}}
 		]`,
 	}, nil)
 	_, ok := result[a2uiadk.ValidatedJSONKey]

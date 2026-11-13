@@ -22,6 +22,23 @@
           }
         }
       }
+    },
+    "CustomCard": {
+      "type": "object",
+      "properties": {
+        "component": {"const": "CustomCard"},
+        "details": {"$ref": "common_types.json#/$defs/DynamicValue"}
+      }
+    },
+    "Table": {
+      "type": "object",
+      "properties": {
+        "component": {"const": "Table"},
+        "metadata": {
+          "type": "object",
+          "properties": {"page": {"type": "integer"}}
+        }
+      }
     }
   }
 }

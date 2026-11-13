@@ -18,6 +18,6 @@ func Example() {
 		fmt.Println(string(data))
 	}
 	// Output:
-	// {"version":"v1.0","createSurface":{"surfaceId":"contact","catalogId":"https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"}}
-	// {"version":"v1.0","updateComponents":{"surfaceId":"contact","components":[{"component":"Column","id":"root","children":["greeting"]},{"component":"Text","id":"greeting","text":"Hello, world!"}]}}
+	// {"version":"1.0","createSurface":{"surfaceId":"contact","catalogId":"https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"}}
+	// {"version":"1.0","updateComponents":{"surfaceId":"contact","components":[{"component":"Column","id":"root","children":["greeting"]},{"component":"Text","id":"greeting","text":"Hello, world!"}]}}
 }
